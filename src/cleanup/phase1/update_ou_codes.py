@@ -7,14 +7,14 @@ import re
 def load_district_codes():
     district_map = {}
     try:
-        with open('malawi_districts.csv', 'r') as f:
+        with open('src/cleanup/malawi_districts.csv', 'r') as f:
             reader = csv.DictReader(f)
             for row in reader:
                 district_name = row['name'].strip().lower()
                 district_code = row['code'].strip()
                 district_map[district_name] = district_code
     except FileNotFoundError:
-        print("Error: malawi_districts.csv not found")
+        print("Error: src/cleanup/malawi_districts.csv not found")
         sys.exit(1)
     return district_map
 

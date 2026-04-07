@@ -180,6 +180,7 @@ cpmis-toolkit/
 │   ├── shared/                     # Shared configuration
 │   │   └── settings.py             # DHIS2 + DB credentials from .env
 │   ├── cleanup/                    # Data standardisation
+│   │   ├── malawi_districts.csv    # District code reference
 │   │   ├── phase1/                 # OU code generation & push
 │   │   │   ├── export_org_units.py
 │   │   │   ├── create_ou_codes.py
@@ -213,7 +214,6 @@ cpmis-toolkit/
 │   └── sync/                       # Sync outputs
 ├── imports/                        # Place sync zip files here
 ├── completed_imports/              # Processed sync zips
-├── malawi_districts.csv            # District code reference
 ├── .env                            # Credentials (gitignored)
 ├── .env.example                    # Credential template
 ├── justfile                        # Unified command runner
