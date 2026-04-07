@@ -51,11 +51,11 @@ Each transfer operation goes through a **five-step pipeline**:
 
 | Step | Name | What It Does |
 |------|------|--------------|
-| 1 | **Fetch** | Queries source OU for all TEIs (children + households) enrolled within specified year range. Builds a complete relationship graph. |
+| 1 | **Fetch** | Queries source OU for all TEIs (children + households) enrolled within specified year range. Fetches all enrollments, **events**, and relationships for each TEI. Builds a complete relationship graph. |
 | 2 | **Select** | User selects which TEIs to **keep** at source. All non-selected TEIs (and their related TEIs) are marked for transfer. |
 | 3 | **Re-ID** | Generates new Household IDs and Child UICs based on destination OU hierarchy. Ensures no ID collisions at destination. |
-| 4 | **Transfer** | Moves TEIs to destination OU using DHIS2 API. Updates org unit, IDs, enrollments, and events. Preserves `createdBy` metadata. |
-| 5 | **Verify** | Confirms all TEIs exist at destination with correct IDs and intact relationships. Generates verification report. |
+| 4 | **Transfer** | Moves TEIs to destination OU using DHIS2 API. Updates org unit on the TEI, **every enrollment**, and **every event** (case management records, assessments, service records). Regenerates IDs. Preserves `createdBy` metadata. |
+| 5 | **Verify** | Confirms all TEIs exist at destination with correct IDs, intact relationships, and that **all events** have the correct org unit. Generates verification report. |
 
 ---
 
@@ -127,12 +127,12 @@ Child:     ZA_CHIK_OVC_00000456
 
 ### Comprehensive Entity Transfer
 
-**Everything moves together:**
-- ✅ Tracked Entity Instances (TEIs)
-- ✅ Program Enrollments
-- ✅ Events (case management records)
-- ✅ Relationships (household-child links)
-- ✅ Attribute values (names, dates, etc.)
+**Everything moves together — no orphaned data:**
+- ✅ **Tracked Entity Instances (TEIs)** — org unit updated to destination
+- ✅ **Program Enrollments** — org unit updated to destination
+- ✅ **All Events** — every event (case management, assessments, service records) has its org unit updated. Events are the most numerous entity and must ALL be transferred to avoid split data.
+- ✅ **Relationships** — household-child links preserved (UID-based, not OU-specific)
+- ✅ **Attribute Values** — preserved except Household ID / Child UIC (regenerated)
 
 ---
 
@@ -203,7 +203,7 @@ The tool transfers the following DHIS2 entities:
 |--------|--------------|
 | **Tracked Entity Instances (TEIs)** | `orgUnit` updated to destination, Household ID / Child UIC regenerated |
 | **Enrollments** | `orgUnit` updated to destination, dates preserved |
-| **Events** | `orgUnit` updated to destination, dates preserved |
+| **Events** | **Every event** across all program stages has its `orgUnit` updated to destination. This includes case management events, assessments, and service delivery records. Event dates, data values, and status are all preserved. |
 | **Relationships** | Preserved (UID-based, not org-unit-specific) |
 | **Attribute Values** | Preserved except Household ID / Child UIC (regenerated) |
 
@@ -299,12 +299,21 @@ If a transfer needs to be reversed:
 
 **DHIS2 API behavior:**
 - `PUT /api/trackedEntityInstances/{uid}` → **overwrites** `lastUpdatedBy`
-- `POST /api/trackedEntityInstances/{uid}` → **preserves** `createdBy`, updates `lastUpdatedBy`
+- `POST /api/trackedEntityInstances` with full payload → **preserves** `createdBy`, updates `lastUpdatedBy`
 
 **Our approach:**
-- Use `POST` for all TEI updates
+- Use `POST` for TEI updates (create-and-update import strategy)
 - `createdBy` remains unchanged (original CPW)
 - `lastUpdatedBy` reflects the transfer operation (expected and acceptable)
+
+### Event Transfer Strategy
+
+**Events are the most numerous entity** — a single child may have dozens of events across multiple program stages. All events must be transferred:
+
+1. Fetch all events for each TEI being transferred
+2. Update `orgUnit` on every event to the destination OU
+3. Verify every event exists at destination after transfer
+4. If any event fails to transfer, log it for manual resolution
 
 ### Relationship Resolution Algorithm
 

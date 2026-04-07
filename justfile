@@ -185,6 +185,18 @@ phase2-verify csv_file:
     ./venv/bin/python src/cleanup/phase2/apply_ids.py --csv {{csv_file}} --verify
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# OU TRANSFER — Move TEIs between organisation units
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Interactive transfer workflow (recommended)
+transfer:
+    PYTHONPATH=src ./venv/bin/python src/transfer/transfer_workflow.py
+
+# Re-run verification on last transfer
+transfer-verify:
+    PYTHONPATH=src ./venv/bin/python src/transfer/transfer_workflow.py --verify
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # SYNC RESCUE — Import unsynced data from Android apps
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -310,6 +322,7 @@ run-all:
 clean:
     rm -rf outputs/task1/*
     rm -rf outputs/phase2/*
+    rm -rf outputs/transfer/*
     rm -rf outputs/sync/*
     @echo "✅ Cleaned generated files"
 
@@ -324,8 +337,15 @@ clean-all: clean
 
 # Run basic tests
 test:
-    @echo "── Testing Cleanup imports ──"
+    @echo "── Testing Shared imports ──"
     PYTHONPATH=src ./venv/bin/python -c "from shared.settings import DHIS2_URL; print(f'  ✅ Shared config OK (DHIS2_URL={DHIS2_URL})')"
+    PYTHONPATH=src ./venv/bin/python -c "from shared.dhis2_client import DHIS2_URL; print(f'  ✅ DHIS2 client OK (url={DHIS2_URL})')"
+    PYTHONPATH=src ./venv/bin/python -c "from shared.ou_picker import load_ou_codes; print('  ✅ OU picker OK')"
+    PYTHONPATH=src ./venv/bin/python -c "from shared.id_utils import PROGRAMS; print(f'  ✅ ID utils OK ({len(PROGRAMS)} programs)')"
+    @echo "── Testing Transfer imports ──"
+    PYTHONPATH=src ./venv/bin/python -c "from transfer.fetcher import fetch_teis_full; print('  ✅ Transfer fetcher OK')"
+    PYTHONPATH=src ./venv/bin/python -c "from transfer.engine import execute_transfer; print('  ✅ Transfer engine OK')"
+    PYTHONPATH=src ./venv/bin/python -c "from transfer.verifier import verify_transfer; print('  ✅ Transfer verifier OK')"
     @echo "── Testing Sync imports ──"
     cd src/sync && ../../venv/bin/python -c "from config import Config; c = Config.from_env(); print(f'  ✅ Sync config OK (server={c.server})')"
     @echo "✅ All imports successful"
@@ -367,6 +387,10 @@ help:
     @echo "  just phase2-apply <csv>              - Apply mapping CSV (via API)"
     @echo "  just phase2-apply-db <csv>           - Apply mapping CSV (via database)"
     @echo "  just phase2-verify <csv>             - Verify DB values match CSV"
+    @echo ""
+    @echo "OU Transfer (Move TEIs between org units):"
+    @echo "  just transfer                        - 🚀 Interactive transfer workflow"
+    @echo "  just transfer-verify                 - Re-run verification on last transfer"
     @echo ""
     @echo "Sync Rescue (Import unsynced Android data):"
     @echo "  just sync-batch                      - 🚀 Batch import (place zips in imports/)"
