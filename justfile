@@ -168,6 +168,10 @@ phase2-list-programs:
 phase2-fetch-samples:
     ./venv/bin/python src/cleanup/phase2/fetch_sample_teis.py
 
+# Apply interactively (pick CSV → pick method → apply)
+phase2-apply-interactive:
+    ./venv/bin/python src/cleanup/phase2/apply_ids.py --interactive
+
 # Apply a previously generated mapping CSV (via API)
 phase2-apply csv_file:
     ./venv/bin/python src/cleanup/phase2/apply_ids.py --csv {{csv_file}}

@@ -23,13 +23,12 @@ import os
 import re
 import argparse
 import time
-import asyncio
-import aiohttp
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Add parent directory to path to import config
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from shared.settings import DHIS2_URL as _RAW_URL, DHIS2_USERNAME, DHIS2_PASSWORD
+from cleanup.phase2.apply_ids import PROGRAMS, apply_changes
 
 # Strip trailing slash to avoid double-slash in URLs (//api/...)
 DHIS2_URL = _RAW_URL.rstrip('/')
@@ -42,25 +41,6 @@ SESSION.headers.update({'Content-Type': 'application/json'})
 SESSION.mount('https://', HTTPAdapter(pool_connections=8, pool_maxsize=8))
 SESSION.mount('http://', HTTPAdapter(pool_connections=8, pool_maxsize=8))
 
-
-# ─── Program Definitions ─────────────────────────────────────────────────────
-
-PROGRAMS = {
-    'household': {
-        'id': 'lTaqt0loQak',
-        'name': 'Household - CPMIS',
-        'id_attribute': 'SYUXY9pax4w',
-        'id_attribute_name': 'Household ID',
-        'type_code': 'HH',
-    },
-    'harmonized': {
-        'id': 'xhzwCCKzFBM',
-        'name': 'MW Harmonized OVC Program - CPMIS',
-        'id_attribute': 'cxr1eaTGEBO',
-        'id_attribute_name': 'Child UIC',
-        'type_code': 'OVC',
-    }
-}
 
 SEQ_LENGTH = 8
 OUTPUT_DIR = 'outputs/phase2'
@@ -537,203 +517,6 @@ def preview_changes(all_results):
     print()
 
 
-# ─── Apply Changes (Bulk) ───────────────────────────────────────────────────
-
-def update_single_tei(tei_payload, retries=3, timeout=90):
-    """Update a single TEI via PUT with retry. Returns (tei_uid, True/False, error_msg).
-    Used only as a fallback for TEIs that failed in bulk."""
-    tei_uid = tei_payload['trackedEntityInstance']
-    for attempt in range(1, retries + 1):
-        try:
-            url = f"{DHIS2_URL}/api/trackedEntityInstances/{tei_uid}?mergeMode=MERGE"
-            resp = SESSION.put(url, json=tei_payload, timeout=timeout)
-            if resp.status_code in [200, 201, 204]:
-                return tei_uid, True, None
-            else:
-                try:
-                    body = resp.json()
-                    msg = body.get('message', '') or body.get('response', {}).get('description', '')
-                    err = f"HTTP {resp.status_code}: {msg[:120]}" if msg else f"HTTP {resp.status_code}"
-                except Exception:
-                    err = f"HTTP {resp.status_code}: {resp.text[:120]}"
-        except Exception as e:
-            err = str(e)[:120]
-        if attempt < retries:
-            time.sleep(2 * attempt)
-    return tei_uid, False, err
-
-
-async def _async_update_tei(session, semaphore, tei_payload, retries=3, timeout=90):
-    """Async PUT for a single TEI. Returns (tei_uid, True/False, error_msg)."""
-    tei_uid = tei_payload['trackedEntityInstance']
-    url = f"{DHIS2_URL}/api/trackedEntityInstances/{tei_uid}?mergeMode=MERGE"
-    err = 'unknown'
-    for attempt in range(1, retries + 1):
-        try:
-            async with semaphore:
-                async with session.put(url, json=tei_payload,
-                                       timeout=aiohttp.ClientTimeout(total=timeout)) as resp:
-                    if resp.status in [200, 201, 204]:
-                        return tei_uid, True, None
-                    try:
-                        body = await resp.json(content_type=None)
-                        msg = body.get('message', '') or body.get('response', {}).get('description', '')
-                        err = f"HTTP {resp.status}: {msg[:120]}" if msg else f"HTTP {resp.status}"
-                    except Exception:
-                        text = await resp.text()
-                        err = f"HTTP {resp.status}: {text[:120]}"
-        except Exception as e:
-            err = str(e)[:120]
-        if attempt < retries:
-            await asyncio.sleep(2 * attempt)
-    return tei_uid, False, err
-
-
-async def _run_async_updates(updates, concurrency=10):
-    """Run all TEI PUTs concurrently with aiohttp. Returns (success, failed_list)."""
-    semaphore = asyncio.Semaphore(concurrency)
-    auth = aiohttp.BasicAuth(DHIS2_USERNAME, DHIS2_PASSWORD)
-    connector = aiohttp.TCPConnector(limit=concurrency, limit_per_host=concurrency)
-    headers = {'Content-Type': 'application/json'}
-
-    success = 0
-    failed_list = []
-    done = 0
-    total_updates = len(updates)
-    start_time = time.time()
-
-    async with aiohttp.ClientSession(auth=auth, connector=connector, headers=headers) as session:
-        tasks = [
-            asyncio.ensure_future(_async_update_tei(session, semaphore, payload, 3, 90))
-            for payload in updates
-        ]
-        for coro in asyncio.as_completed(tasks):
-            tei_uid, ok, err = await coro
-            done += 1
-            if ok:
-                success += 1
-            else:
-                failed_list.append(f"{tei_uid}: {err}")
-                print(f"\n  ❌ {tei_uid}: {err}")
-
-            elapsed = time.time() - start_time
-            rate = done / elapsed if elapsed > 0 else 0
-            remaining = total_updates - done
-            eta = remaining / rate if rate > 0 else 0
-            eta_str = f"{int(eta//3600)}h{int((eta%3600)//60)}m{int(eta%60)}s" if eta >= 3600 else f"{int(eta//60)}m{int(eta%60)}s"
-            pct = done * 100 // total_updates
-            print(
-                f"\r  🚀 [{done}/{total_updates}] {pct}% — ✅ {success} updated  ❌ {len(failed_list)} failed  "
-                f"({rate:.1f} TEIs/s, ETA: {eta_str})".ljust(110),
-                end='', flush=True
-            )
-
-    return success, failed_list
-
-
-def apply_changes(csv_file, use_db=False):
-    """
-    Apply ID changes from CSV to DHIS2.
-
-    Args:
-        csv_file: Path to CSV mapping file
-        use_db: If True, update directly via PostgreSQL (FAST but bypasses DHIS2 validation).
-                If False, use DHIS2 API with async aiohttp PUT requests (SAFE but slower).
-
-    Each API PUT sends only the single ID attribute with mergeMode=MERGE,
-    so all other TEI attributes remain untouched. Uses 4 concurrent async
-    requests for high throughput without overwhelming the server.
-    """
-    if use_db:
-        from cleanup.phase2.db_update import apply_changes_via_db
-        program_attributes = {
-            'household': PROGRAMS['household']['id_attribute'],
-            'harmonized': PROGRAMS['harmonized']['id_attribute'],
-        }
-        return apply_changes_via_db(csv_file, program_attributes)
-    if not os.path.exists(csv_file):
-        print(f"  ❌ CSV file not found: {csv_file}")
-        return 0, 0
-
-    # Read only the rows that actually need changing
-    with open(csv_file, 'r') as f:
-        reader = csv.DictReader(f)
-        mappings = [r for r in reader if r.get('changed') == 'True']
-
-    if not mappings:
-        print("  ℹ️  No changes to apply.")
-        return 0, 0
-
-    total = len(mappings)
-    print(f"\n  Applying {total} ID changes...\n")
-
-    # ── Build minimal payloads directly from CSV ─────────────────────────
-    # The CSV already contains org_unit and tracked_entity_type from the
-    # first fetch (during ID generation). No second fetch needed.
-    # Each payload sends ONLY the single ID attribute; mergeMode=MERGE
-    # ensures all other attributes remain untouched.
-    updates = []
-    skipped = 0
-    for row in mappings:
-        tei_uid = row['tei_uid']
-        org_unit = row.get('org_unit', '')
-        tracked_entity_type = row.get('tracked_entity_type', '')
-        program = row['program']
-        new_id = row['new_id']
-        attribute_id = PROGRAMS[program]['id_attribute']
-
-        if not org_unit or not tracked_entity_type:
-            skipped += 1
-            continue
-
-        updates.append({
-            'trackedEntityInstance': tei_uid,
-            'orgUnit': org_unit,
-            'trackedEntityType': tracked_entity_type,
-            'attributes': [{'attribute': attribute_id, 'value': new_id}],
-        })
-
-    if skipped:
-        print(f"  ⚠️  {skipped} TEIs skipped (missing org_unit or tracked_entity_type in CSV)")
-    print(f"  📝 {len(updates)} TEIs ready to update")
-
-    # ── STEP C: Async PUT with aiohttp (4 concurrent requests) ─────────────
-    # Uses aiohttp with asyncio for non-blocking I/O — much higher throughput
-    # than threads. Semaphore limits concurrency to avoid overwhelming the
-    # DHIS2 server. Each PUT sends only the single ID attribute;
-    # mergeMode=MERGE ensures all other attributes remain untouched.
-    CONCURRENCY = 4
-    total_updates = len(updates)
-
-    print(f"\n  🚀 Updating {total_updates} TEIs with {CONCURRENCY} async connections...\n")
-
-    start_time = time.time()
-    success, failed_list = asyncio.run(_run_async_updates(updates, concurrency=CONCURRENCY))
-
-    # ── Final summary ────────────────────────────────────────────────────────
-    total_elapsed = time.time() - start_time
-    error_count = len(failed_list)
-    rate = success / total_elapsed if total_elapsed > 0 else 0
-
-    print(f"\n\n  Summary:")
-    print(f"  Total:     {total_updates}")
-    print(f"  Success:   {success}")
-    print(f"  Errors:    {error_count}")
-    if skipped:
-        print(f"  Skipped:   {skipped}")
-    print(f"  Time:      {total_elapsed:.1f}s")
-    print(f"  Rate:      {rate:.1f} TEIs/s")
-
-    if failed_list:
-        print(f"\n  Errors (first 10):")
-        for err in failed_list[:10]:
-            print(f"    ❌ {err}")
-        if len(failed_list) > 10:
-            print(f"    ... and {len(failed_list) - 10} more")
-
-    return success, error_count
-
-
 # ─── Main Workflow ───────────────────────────────────────────────────────────
 
 def main():
@@ -900,8 +683,8 @@ def main():
     else:
         print(f"\n  ❌ Cancelled. No changes made.")
         print(f"\n  To apply later:")
-        print(f"  ./venv/bin/python src/phase2/apply_ids.py --csv {output_file}")
-        print(f"  ./venv/bin/python src/phase2/apply_ids.py --csv {output_file} --use-db")
+        print(f"  ./venv/bin/python src/cleanup/phase2/apply_ids.py --csv {output_file}")
+        print(f"  ./venv/bin/python src/cleanup/phase2/apply_ids.py --csv {output_file} --use-db")
 
     print(f"{'=' * 80}\n")
 

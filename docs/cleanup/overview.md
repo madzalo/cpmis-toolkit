@@ -242,13 +242,4 @@ just phase2-verify <csv>              # Verify DB values match CSV
 
 ## Getting Started
 
-See [`README.md`](README.md) for:
-- Installation instructions
-- Configuration setup
-- Complete command reference
-- District codes reference
-- Troubleshooting guide
-
----
-
-*This toolkit provides a safe, automated approach to standardising CPMIS data in DHIS2, with both API and direct database update options.*
+See the main [README.md](../../README.md) for installation, configuration, and the complete command reference.

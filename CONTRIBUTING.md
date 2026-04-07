@@ -1,20 +1,18 @@
-# Contributing to CPMIS Sync Rescue
+# Contributing to CPMIS Toolkit
 
-Thank you for your interest in contributing to CPMIS Sync Rescue! This document provides guidelines for contributing to the project.
+Thank you for your interest in contributing to CPMIS Toolkit! This document provides guidelines for contributing.
 
 ## 🚀 Getting Started
 
 1. **Fork the repository**
    ```bash
-   git clone https://github.com/madzalo/cpmis-sync-rescue.git
-   cd cpmis-sync-rescue
+   git clone https://github.com/madzalo/cpmis-toolkit.git
+   cd cpmis-toolkit
    ```
 
 2. **Set up development environment**
    ```bash
-   python3 -m venv venv
-   source venv/bin/activate
-   pip install -e ".[dev]"
+   just init
    ```
 
 3. **Run tests**
@@ -71,14 +69,19 @@ Thank you for your interest in contributing to CPMIS Sync Rescue! This document 
 
 ```
 src/
-├── cli.py              # Command-line interface
-├── config.py           # Configuration management
-├── extractor.py        # Data extraction from SQLite
-├── validator.py        # Dry-run validation
-├── importer.py         # DHIS2 data import
-├── verifier.py         # Server-side verification
-├── batch_processor.py  # Batch processing logic
-└── utils.py            # Utilities and helpers
+├── shared/             # Shared configuration
+├── cleanup/            # Cleanup App (OU codes + TEI IDs)
+│   ├── phase1/         # Organisation unit codes
+│   └── phase2/         # TEI ID generation & apply
+└── sync/               # Sync Rescue App
+    ├── cli.py          # Command-line interface
+    ├── config.py       # Configuration management
+    ├── extractor.py    # Data extraction from SQLite
+    ├── validator.py    # Dry-run validation
+    ├── importer.py     # DHIS2 data import
+    ├── verifier.py     # Server-side verification
+    ├── batch_processor.py  # Batch processing logic
+    └── utils.py        # Utilities and helpers
 ```
 
 ## 🔧 Development Commands
@@ -87,7 +90,7 @@ src/
 just help           # Show available commands
 just test           # Run tests
 just clean          # Clean generated files
-just process-imports # Run batch import
+just sync-batch     # Run batch import
 ```
 
 ## 📄 License
@@ -100,4 +103,4 @@ Open an issue or contact [@madzalo](https://github.com/madzalo).
 
 ---
 
-**Thank you for contributing!** 🎉
+**Thank you for contributing!**
