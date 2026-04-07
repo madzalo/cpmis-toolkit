@@ -15,6 +15,8 @@ PROGRAMS = {
         'id_attribute': 'SYUXY9pax4w',
         'id_attribute_name': 'Household ID',
         'type_code': 'HH',
+        'firstname_attribute': 'BEW0LacDZlt',
+        'surname_attribute': 'J6IRtvVe7qL',
     },
     'harmonized': {
         'id': 'xhzwCCKzFBM',
@@ -22,16 +24,36 @@ PROGRAMS = {
         'id_attribute': 'cxr1eaTGEBO',
         'id_attribute_name': 'Child UIC',
         'type_code': 'OVC',
+        'firstname_attribute': 'UADoN3P2lNa',
+        'surname_attribute': 'AJBnw1hCqte',
     }
 }
 
 
-def extract_current_id(tei, id_attribute):
-    """Extract the current ID value from a TEI's attributes."""
+def extract_attribute(tei, attribute_uid):
+    """Extract a single attribute value from a TEI."""
     for attr in tei.get('attributes', []):
-        if attr.get('attribute') == id_attribute:
+        if attr.get('attribute') == attribute_uid:
             return attr.get('value', '')
     return ''
+
+
+def extract_current_id(tei, id_attribute):
+    """Extract the current ID value from a TEI's attributes."""
+    return extract_attribute(tei, id_attribute)
+
+
+def get_tei_display_name(tei, program_key):
+    """
+    Get a human-readable display name for a TEI.
+    For households: 'Firstname Surname'
+    For children: 'Firstname Surname'
+    """
+    program = PROGRAMS.get(program_key, {})
+    first = extract_attribute(tei, program.get('firstname_attribute', ''))
+    surname = extract_attribute(tei, program.get('surname_attribute', ''))
+    name = f"{first} {surname}".strip()
+    return name or '(no name)'
 
 
 def extract_sequence_number(current_id):

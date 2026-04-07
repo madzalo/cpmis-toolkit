@@ -5,7 +5,7 @@ User selects which TEIs to KEEP; everything else is transferred.
 import csv
 import os
 
-from shared.id_utils import PROGRAMS, extract_current_id
+from shared.id_utils import PROGRAMS, extract_current_id, get_tei_display_name
 
 
 def display_tei_summary(household_teis, child_teis, hh_to_children, child_to_hh):
@@ -38,13 +38,15 @@ def display_tei_summary(household_teis, child_teis, hh_to_children, child_to_hh)
     for i, hh_tei in enumerate(household_teis, 1):
         hh_uid = hh_tei['trackedEntityInstance']
         hh_id = extract_current_id(hh_tei, hh_attr) or '(no ID)'
+        hh_name = get_tei_display_name(hh_tei, 'household')
         children = hh_to_children.get(hh_uid, set())
-        print(f"\n    {i:3d}. 🏠 {hh_id:<35} ({hh_uid})")
+        print(f"\n    {i:3d}. 🏠 {hh_name:<25} {hh_id:<30} ({hh_uid})")
         if children:
             for child_uid in sorted(children):
                 child_tei = tei_map.get(child_uid, {})
                 child_id = extract_current_id(child_tei, child_attr) or '(no ID)'
-                print(f"         └─ 👶 {child_id:<35} ({child_uid})")
+                child_name = get_tei_display_name(child_tei, 'harmonized')
+                print(f"         └─ 👶 {child_name:<25} {child_id:<30} ({child_uid})")
         else:
             print(f"         └─ (no linked children)")
 
@@ -60,7 +62,8 @@ def display_tei_summary(household_teis, child_teis, hh_to_children, child_to_hh)
         for i, child_tei in enumerate(orphaned_children, 1):
             child_uid = child_tei['trackedEntityInstance']
             child_id = extract_current_id(child_tei, PROGRAMS['harmonized']['id_attribute']) or '(no ID)'
-            print(f"    {i:3d}. 👶 {child_id:<35} ({child_uid})")
+            child_name = get_tei_display_name(child_tei, 'harmonized')
+            print(f"    {i:3d}. 👶 {child_name:<25} {child_id:<30} ({child_uid})")
 
 
 def interactive_select_keep(household_teis, child_teis, hh_to_children, child_to_hh):
@@ -87,17 +90,20 @@ def interactive_select_keep(household_teis, child_teis, hh_to_children, child_to
     print(f"  Enter 'none' to transfer ALL, or 'cancel' to abort.\n")
 
     # Build numbered list
+    hh_uid_set = {t['trackedEntityInstance'] for t in household_teis}
     numbered = []
     for i, tei in enumerate(all_teis, 1):
         uid = tei['trackedEntityInstance']
-        if uid in [t['trackedEntityInstance'] for t in household_teis]:
+        if uid in hh_uid_set:
             tei_type = 'HH'
             tei_id = extract_current_id(tei, hh_attr)
+            tei_name = get_tei_display_name(tei, 'household')
         else:
             tei_type = 'OVC'
             tei_id = extract_current_id(tei, child_attr)
-        numbered.append((i, uid, tei_type, tei_id or '(no ID)'))
-        print(f"    {i:3d}. [{tei_type}] {tei_id or '(no ID)':<35} ({uid})")
+            tei_name = get_tei_display_name(tei, 'harmonized')
+        numbered.append((i, uid, tei_type, tei_id or '(no ID)', tei_name))
+        print(f"    {i:3d}. [{tei_type}] {tei_name:<25} {tei_id or '(no ID)':<30} ({uid})")
 
     while True:
         choice = input(f"\n  TEIs to KEEP (e.g., 1,3,5 or 'none' or 'cancel'): ").strip()
@@ -116,7 +122,7 @@ def interactive_select_keep(household_teis, child_teis, hh_to_children, child_to
             indices = [int(n.strip()) for n in choice.split(',')]
             if all(1 <= n <= total for n in indices):
                 keep_uids = {numbered[n - 1][1] for n in indices}
-                kept_labels = [f"{numbered[n-1][2]}:{numbered[n-1][3]}" for n in indices]
+                kept_labels = [f"{numbered[n-1][2]}:{numbered[n-1][4]} ({numbered[n-1][3]})" for n in indices]
                 print(f"  ✅ Keeping: {', '.join(kept_labels)}")
                 return keep_uids
             else:
@@ -136,31 +142,34 @@ def save_transfer_preview(transfer_teis, dest_ou_uid, dest_ou_name, output_dir='
     with open(preview_file, 'w', newline='') as f:
         writer = csv.writer(f)
         writer.writerow([
-            'tei_uid', 'tei_type', 'current_id', 'current_ou',
+            'tei_uid', 'tei_type', 'name', 'current_id', 'current_ou',
             'dest_ou_uid', 'dest_ou_name', 'enrollments', 'events'
         ])
         for tei in transfer_teis:
             uid = tei['trackedEntityInstance']
             current_ou = tei.get('orgUnit', '')
 
-            # Determine type and current ID
+            # Determine type, name, and current ID
             hh_id = extract_current_id(tei, hh_attr)
             child_id = extract_current_id(tei, child_attr)
             if hh_id:
                 tei_type = 'HH'
                 current_id = hh_id
+                name = get_tei_display_name(tei, 'household')
             elif child_id:
                 tei_type = 'OVC'
                 current_id = child_id
+                name = get_tei_display_name(tei, 'harmonized')
             else:
                 tei_type = '?'
                 current_id = ''
+                name = ''
 
             enrollments = len(tei.get('enrollments', []))
             events = sum(len(e.get('events', [])) for e in tei.get('enrollments', []))
 
             writer.writerow([
-                uid, tei_type, current_id, current_ou,
+                uid, tei_type, name, current_id, current_ou,
                 dest_ou_uid, dest_ou_name, enrollments, events
             ])
 
