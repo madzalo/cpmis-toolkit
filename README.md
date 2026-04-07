@@ -8,7 +8,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 [![DHIS2](https://img.shields.io/badge/DHIS2-Compatible-orange.svg)](https://dhis2.org/)
 
-A collection of tools for managing the CPMIS DHIS2 instance in Malawi — covering data cleanup, ID standardisation, and recovery of unsynced Android app data.
+A collection of tools for managing the CPMIS DHIS2 instance in Malawi — covering data cleanup, ID standardisation, organisation unit transfers, and recovery of unsynced Android app data.
 
 </div>
 
@@ -22,9 +22,13 @@ A collection of tools for managing the CPMIS DHIS2 instance in Malawi — coveri
 - [Cleanup App](#cleanup-app)
   - [Phase 1 — Organisation Unit Codes](#phase-1--organisation-unit-codes)
   - [Phase 2 — TEI ID Standardisation](#phase-2--tei-id-standardisation)
+- [OU Transfer App](#ou-transfer-app)
+  - [Background](#background-1)
+  - [How It Works](#how-it-works-1)
+  - [Typical Workflow](#typical-workflow)
 - [Sync Rescue App](#sync-rescue-app)
-  - [Background](#background)
-  - [How It Works](#how-it-works)
+  - [Background](#background-2)
+  - [How It Works](#how-it-works-2)
   - [Batch Processing](#batch-processing-recommended)
   - [Single File Processing](#single-file-processing)
 - [Project Structure](#project-structure)
@@ -39,17 +43,19 @@ A collection of tools for managing the CPMIS DHIS2 instance in Malawi — coveri
 
 The **Malawi Child Protection Management Information System (CPMIS)** runs on DHIS2 and manages data for approximately **53,000 households** and **78,000 children (OVCs)** across **709 organisation units**. Community Para Social Workers (CPWs) use the DHIS2 Android Capture app to collect data in the field.
 
-This toolkit provides two apps to support CPMIS operations:
+This toolkit provides three apps to support CPMIS operations:
 
 | App | What It Does | Location |
 |-----|-------------|----------|
 | **Cleanup** | Standardises org unit codes, names, and TEI IDs across the entire DHIS2 hierarchy | `src/cleanup/` |
+| **OU Transfer** | Transfers TEIs between organisation units with automatic ID regeneration | `src/transfer/` |
 | **Sync Rescue** | Recovers and imports unsynced data from DHIS2 Android Capture app databases | `src/sync/` |
 
-Both apps share a single `.env` for credentials, a single virtual environment, and a unified `justfile` command runner.
+All apps share a single `.env` for credentials, a single virtual environment, and a unified `justfile` command runner.
 
 > **For a deeper understanding of each app**, see the detailed overviews:
 > - [Cleanup App Overview](docs/cleanup/overview.md) — code architecture, ID formats, update methods, safety features
+> - [OU Transfer App Overview](docs/transfer/overview.md) — background, transfer workflow, relationship preservation, ID regeneration
 > - [Sync Rescue App Overview](docs/sync/overview.md) — background, data flow, processing pipeline, extracted entities
 
 ---
@@ -176,6 +182,67 @@ just phase2-verify <csv>       # Verify DB values match CSV
 |--------|-------|--------|----------|
 | **API** | ~8 TEIs/min | Safe — uses DHIS2 validation and audit logs | Small batches, production |
 | **Database** | ~5,000 TEIs/s | Fast — bypasses DHIS2 validation, needs backup | Bulk updates, staging |
+
+---
+
+## OU Transfer App
+
+Transfers TEIs (children and households) between organisation units with automatic ID regeneration when CPWs register data at incorrect org unit levels.
+
+> **Full documentation:** [OU Transfer Overview](docs/transfer/overview.md) · [Task Breakdown](docs/transfer/tasks.md)
+
+### Background
+
+Some CPWs incorrectly register children and households at **facility level** instead of **TA (Traditional Authority) level**. This creates:
+
+- **Wrong hierarchy** — Children appear under facilities instead of TAs
+- **Incorrect IDs** — Household IDs and Child UICs contain facility codes instead of TA codes
+- **Reporting errors** — Aggregations show incorrect geographical distribution
+
+### How It Works
+
+**OU Transfer** safely moves TEIs between org units while preserving relationships and regenerating IDs:
+
+1. **Select source OU** (facility) and **destination OU** (TA) using interactive picker
+2. **Specify enrollment year range** (e.g., 2024-2026) to filter which TEIs to consider
+3. **Select which TEIs to KEEP** at source — everything else is transferred
+4. **Relationship preservation** — households and children are kept together automatically
+5. **ID regeneration** — new Household IDs and Child UICs based on destination OU hierarchy
+6. **Transfer execution** — moves TEIs, enrollments, events while preserving `createdBy` metadata
+7. **Verification** — confirms all TEIs exist at destination with correct IDs and intact relationships
+
+```
+Source OU (Facility)          Transfer Engine              Destination OU (TA)
+┌──────────────────┐         ┌──────────────┐            ┌──────────────────┐
+│ ZA_CHIK_LAMB     │         │ 1. Fetch     │            │ ZA_CHIK          │
+│ 50 children      │────────▶│ 2. Select    │───────────▶│ 40 children      │
+│ 35 households    │         │ 3. Re-ID     │            │ 28 households    │
+│ (Wrong IDs)      │         │ 4. Transfer  │            │ (Correct IDs)    │
+└──────────────────┘         └──────────────┘            └──────────────────┘
+```
+
+### Typical Workflow
+
+```bash
+# Interactive transfer workflow
+just transfer
+
+# 1. Select source org unit (facility where data was incorrectly entered)
+# 2. Select destination org unit (correct TA)
+# 3. Enter year range: 2024-2026
+# 4. Preview: "Found 50 children, 35 households"
+# 5. Select which TEIs to KEEP at facility (others will be transferred)
+# 6. Review transfer preview CSV
+# 7. Confirm and execute
+# 8. Verification runs automatically
+```
+
+**Key features:**
+- ✅ **Relationship preservation** — households and children stay together
+- ✅ **ID regeneration** — new IDs reflect destination OU hierarchy
+- ✅ **Audit trail preservation** — `createdBy` metadata maintained
+- ✅ **Selective transfer** — choose which TEIs to keep vs transfer
+- ✅ **Comprehensive** — transfers TEIs, enrollments, events, relationships
 
 ---
 
