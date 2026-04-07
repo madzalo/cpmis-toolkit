@@ -37,7 +37,7 @@ A collection of tools for managing the CPMIS DHIS2 instance in Malawi — coveri
 
 ## Overview
 
-The **Malawi Child Protection Management Information System (CPMIS)** runs on DHIS2 and manages data for approximately **53,000 households** and **78,000 children (OVCs)** across **709 organisation units**. Community Para Social Workers (CPSWs) use the DHIS2 Android Capture app to collect data in the field.
+The **Malawi Child Protection Management Information System (CPMIS)** runs on DHIS2 and manages data for approximately **53,000 households** and **78,000 children (OVCs)** across **709 organisation units**. Community Para Social Workers (CPWs) use the DHIS2 Android Capture app to collect data in the field.
 
 This toolkit provides two apps to support CPMIS operations:
 
@@ -187,7 +187,7 @@ Recovers and imports unsynced data from DHIS2 Android Capture app databases when
 
 ### Background
 
-During retrospective data entry campaigns, CPSWs enter large volumes of historical data on their mobile devices using the DHIS2 Android Capture app. When they attempt to sync this data to the central CPMIS server, failures frequently occur due to:
+During retrospective data entry campaigns, CPWs enter large volumes of historical data on their mobile devices using the DHIS2 Android Capture app. When they attempt to sync this data to the central CPMIS server, failures frequently occur due to:
 
 - **Network issues** — unreliable mobile data in rural Malawi
 - **Server timeouts** — large payloads overwhelming the DHIS2 server
@@ -200,11 +200,11 @@ When sync fails, the data remains trapped in the device's local SQLite database.
 
 **Sync Rescue** bypasses the Android app's sync mechanism entirely:
 
-1. **CPSW exports** their database from the Android app and shares the `.zip` file via **WhatsApp** or email
+1. **CPW exports** their database from the Android app and shares the `.zip` file via **WhatsApp** or email
 2. **Admin places** the `.zip` in the `imports/` folder and runs the batch processor
 3. **The tool extracts** unsynced records from the SQLite database
 4. **Validates** by sending a dry-run to DHIS2 (no data modified)
-5. **Imports** via the DHIS2 REST API using the CPSW's own credentials
+5. **Imports** via the DHIS2 REST API using the CPW's own credentials
 6. **Verifies** the records exist on the server with correct values
 
 ```
@@ -217,7 +217,7 @@ CPSW Device              WhatsApp/Email           Admin Workstation            D
 
 ### Batch Processing (Recommended)
 
-Process multiple CPSW databases at once:
+Process multiple CPW databases at once:
 
 ```bash
 # 1. Place received zip files in the imports folder
@@ -226,7 +226,7 @@ cp ~/Downloads/*-database.zip imports/
 # 2. Run the batch processor
 just sync-batch
 
-# 3. When prompted, enter each CPSW's surname
+# 3. When prompted, enter each CPW's surname
 #    - Username is auto-extracted from the zip filename
 #    - Password is generated as: Surname@2025
 

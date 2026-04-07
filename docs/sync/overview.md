@@ -8,28 +8,28 @@
 
 ## Background
 
-The **Malawi Child Protection Management Information System (CPMIS)** uses DHIS2 as its core platform. Community-level data collection is carried out by **Community Para Social Workers (CPSWs)** using the **DHIS2 Android Capture** app on mobile phones and tablets. CPSWs register households, enrol children (OVCs), and record case management events in the field — often in areas with limited or no internet connectivity.
+The **Malawi Child Protection Management Information System (CPMIS)** uses DHIS2 as its core platform. Community-level data collection is carried out by **Community Para Social Workers (CPWs)** using the **DHIS2 Android Capture** app on mobile phones and tablets. CPWs register households, enrol children (OVCs), and record case management events in the field — often in areas with limited or no internet connectivity.
 
 ### The Sync Problem
 
-During **retrospective data entry campaigns**, CPSWs enter large volumes of historical data on their devices. When they attempt to sync this data to the central CPMIS server, a number of issues frequently arise:
+During **retrospective data entry campaigns**, CPWs enter large volumes of historical data on their devices. When they attempt to sync this data to the central CPMIS server, a number of issues frequently arise:
 
 - **Network failures** — Unreliable mobile data coverage in rural areas causes sync timeouts and partial uploads
-- **Server timeouts** — Large payloads overwhelm the DHIS2 server, especially when many CPSWs sync simultaneously
+- **Server timeouts** — Large payloads overwhelm the DHIS2 server, especially when many CPWs sync simultaneously
 - **Conflicting data** — Records created offline may conflict with server-side changes, causing sync rejections
 - **App crashes** — The Android Capture app may crash mid-sync, leaving data in an inconsistent state
 - **Authentication issues** — Expired sessions or changed credentials interrupt the sync process
 
-When sync fails, the data remains trapped on the device's local SQLite database. CPSWs often cannot resolve these issues themselves, and without intervention the data is at risk of being lost — particularly if the device is damaged, reset, or reassigned.
+When sync fails, the data remains trapped on the device's local SQLite database. CPWs often cannot resolve these issues themselves, and without intervention the data is at risk of being lost — particularly if the device is damaged, reset, or reassigned.
 
 ### The Solution
 
 **Sync Rescue** provides a safe, reliable way to recover this trapped data:
 
-1. **CPSWs export** their device's database (the DHIS2 Android app stores all data in a SQLite `.db` file)
-2. **CPSWs share** the exported database via WhatsApp, email, or any file transfer method — typically as a `.zip` file
+1. **CPWs export** their device's database (the DHIS2 Android app stores all data in a SQLite `.db` file)
+2. **CPWs share** the exported database via WhatsApp, email, or any file transfer method — typically as a `.zip` file
 3. **An administrator** receives the `.zip`, places it in the `imports/` folder, and runs the batch processor
-4. **The tool** extracts, validates, and imports the data directly into DHIS2 via the REST API using the CPSW's own credentials
+4. **The tool** extracts, validates, and imports the data directly into DHIS2 via the REST API using the CPW's own credentials
 5. **The admin verifies** the import was successful by checking records on the server
 
 This approach bypasses the Android app's sync mechanism entirely, importing data server-side through the DHIS2 Web API.
@@ -57,16 +57,16 @@ Each database goes through a **four-step pipeline**:
 |------|------|--------------|
 | 1 | **Extract** | Opens the SQLite database, reads all unsynced TEIs, enrollments, events, and relationships. Builds a DHIS2-compatible JSON import payload. |
 | 2 | **Validate** | Sends the payload to DHIS2 as a **dry run** (`importStrategy: CREATE_AND_UPDATE`, `dryRun: true`). Reports what would be created, updated, or rejected — without touching real data. |
-| 3 | **Import** | Sends the payload for real import. Records are created or updated on the server using the CPSW's own credentials (maintaining correct ownership and audit trail). |
+| 3 | **Import** | Sends the payload for real import. Records are created or updated on the server using the CPSSSSSW's own credentials (maintaining correct ownership and audit trail). |
 | 4 | **Verify** | Queries the DHIS2 API to confirm that imported TEIs, enrollments, and events exist on the server with the expected attribute values. |
 
 ### Batch Processing
 
-In practice, multiple CPSWs may need their data rescued at the same time. The **batch processor** handles this efficiently:
+In practice, multiple CPWs may need their data rescued at the same time. The **batch processor** handles this efficiently:
 
 1. Admin places all `.zip` files into the `imports/` folder
 2. Runs `just sync-batch`
-3. The tool lists all `.zip` files and asks for each CPSW's surname
+3. The tool lists all `.zip` files and asks for each CPW's surname
    - Username is **auto-extracted** from the zip filename (e.g., `john-database.zip` → username `john`)
    - Password is generated as `Surname@2025` (standard CPMIS password format)
 4. Each file is processed through the full pipeline (extract → validate → import → verify)
@@ -79,7 +79,7 @@ In practice, multiple CPSWs may need their data rescued at the same time. The **
 
 ### Safe Import Process
 - **Dry-run validation** before every import — see exactly what will happen before committing
-- **Per-user credentials** — data is imported under the CPSW's own account, preserving DHIS2 audit trails
+- **Per-user credentials** — data is imported under the CPW's own account, preserving DHIS2 audit trails
 - **Automatic rollback** — if import fails, no partial data is left behind
 
 ### Intelligent Data Handling
@@ -102,7 +102,7 @@ In practice, multiple CPSWs may need their data rescued at the same time. The **
 
 ## Typical Workflow
 
-### For the CPSW (in the field)
+### For the CPW (in the field)
 
 1. Open the DHIS2 Android Capture app
 2. Go to **Settings → Export database** (or use a file manager to locate the app's database)
@@ -118,7 +118,7 @@ cp ~/Downloads/*-database.zip imports/
 # 2. Run the batch processor
 just sync-batch
 
-# 3. When prompted, enter each CPSW's surname
+# 3. When prompted, enter each CPW's surname
 #    The tool auto-extracts the username from the filename
 #    Password is generated as: Surname@2025
 
@@ -147,7 +147,7 @@ The tool extracts the following DHIS2 entities from the Android app's local data
 
 | Entity | Description |
 |--------|-------------|
-| **Tracked Entity Instances (TEIs)** | Households and children (OVCs) registered by the CPSW |
+| **Tracked Entity Instances (TEIs)** | Households and children (OVCs) registered by the CPW |
 | **Enrollments** | Program enrollments for each TEI (household programme, OVC programme) |
 | **Events** | Case management events, assessments, and service records |
 | **Relationships** | Links between households and children |
