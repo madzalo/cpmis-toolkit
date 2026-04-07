@@ -35,6 +35,7 @@ def build_transfer_payload(tei, dest_ou_uid, id_mapping=None):
     }
 
     # Copy attributes, updating the ID if needed
+    id_attr_updated = False
     for attr in tei.get('attributes', []):
         attr_copy = {
             'attribute': attr['attribute'],
@@ -42,7 +43,15 @@ def build_transfer_payload(tei, dest_ou_uid, id_mapping=None):
         }
         if id_mapping and attr['attribute'] == id_mapping['attribute']:
             attr_copy['value'] = id_mapping['new_id']
+            id_attr_updated = True
         payload['attributes'].append(attr_copy)
+
+    # If ID attribute wasn't in original attributes, add it now
+    if id_mapping and not id_attr_updated:
+        payload['attributes'].append({
+            'attribute': id_mapping['attribute'],
+            'value': id_mapping['new_id'],
+        })
 
     # Copy enrollments and their events, updating orgUnit on each
     for enrollment in tei.get('enrollments', []):

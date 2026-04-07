@@ -153,7 +153,8 @@ just transfer
 #    → Example: "ZA_CHIK (TA Chikowi)"
 
 # 4. Enter enrollment year range
-#    → Example: "2024-2026"
+#    → Single year: "2025" (fetches TEIs enrolled anytime in 2025)
+#    → Year range: "2024-2026" (fetches TEIs enrolled between 2024-2026)
 
 # 5. Preview affected records
 #    → Shows count: "Found 50 children, 35 households"
