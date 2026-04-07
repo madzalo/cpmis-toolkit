@@ -124,7 +124,7 @@ def execute_transfer(transfer_teis, dest_ou_uid, id_mappings, output_dir='output
     print(f"  TEIs to transfer:  {total}")
     print(f"  Events to move:    {total_events}")
     print(f"  Destination:       {dest_ou_uid}")
-    print(f"  Method:            POST (preserves createdBy)")
+    print(f"  Method:            POST strategy=CREATE_AND_UPDATE, mergeMode=REPLACE")
     print(f"  {'═' * 70}\n")
 
     start_time = time.time()
@@ -148,7 +148,7 @@ def execute_transfer(transfer_teis, dest_ou_uid, id_mappings, output_dir='output
             import_payload,
             params={
                 'strategy': 'CREATE_AND_UPDATE',
-                'mergeMode': 'MERGE',
+                'mergeMode': 'REPLACE',
             }
         )
 
@@ -162,9 +162,17 @@ def execute_transfer(transfer_teis, dest_ou_uid, id_mappings, output_dir='output
             updated = response_data.get('updated', 0)
             ignored = response_data.get('ignored', 0)
 
+            # Log import summary details for debugging
+            import_summaries = response_data.get('importSummaries', [])
+            if import_summaries:
+                summary = import_summaries[0]
+                status = summary.get('status', 'UNKNOWN')
+                description = summary.get('description', '')
+                if status != 'SUCCESS' or description:
+                    print(f"\n    ⚠️  {tei_uid}: {status} - {description}")
+
             if ignored and not imported and not updated:
                 error_count += 1
-                import_summaries = response_data.get('importSummaries', [])
                 err_desc = ''
                 if import_summaries:
                     err_desc = import_summaries[0].get('description', 'Unknown error')
