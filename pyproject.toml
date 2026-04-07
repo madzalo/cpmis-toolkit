@@ -1,0 +1,60 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cpmis-toolkit"
+version = "2.0.0"
+description = "Unified DHIS2 management toolkit for CPMIS Malawi — data cleanup and sync rescue"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Resten Madzalo", email = "madzaloresten8@protonmail.com"}
+]
+keywords = ["dhis2", "cpmis", "data-cleanup", "sync", "malawi"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Healthcare Industry",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Database",
+    "Topic :: Scientific/Engineering :: Medical Science Apps.",
+]
+requires-python = ">=3.10"
+dependencies = [
+    "requests>=2.25.0",
+    "python-dotenv>=1.0.0",
+    "psycopg2-binary>=2.9.0",
+    "aiohttp>=3.9.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.0.0",
+    "flake8>=6.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/madzalo/cpmis-toolkit"
+Repository = "https://github.com/madzalo/cpmis-toolkit.git"
+Issues = "https://github.com/madzalo/cpmis-toolkit/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["shared*", "cleanup*", "sync*"]
+
+[tool.black]
+line-length = 100
+target-version = ['py310', 'py311', 'py312']
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]

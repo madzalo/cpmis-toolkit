@@ -1,0 +1,54 @@
+# Credentials
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Generated outputs
+outputs/
+*.log
+
+# Sync: database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Sync: generated files
+dhis2_import_payload.json
+dry_run_result.json
+import_result.json
+access_denied_teis.json
+import_report.json
+import_report.csv
+
+# Sync: import zip files (keep folder structure)
+imports/*.zip
+!imports/.gitkeep
+completed_imports/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# OS
+.DS_Store
+Thumbs.db
