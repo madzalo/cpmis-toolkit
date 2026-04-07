@@ -68,11 +68,13 @@ def display_tei_summary(household_teis, child_teis, hh_to_children, child_to_hh)
 
 def interactive_select_keep(household_teis, child_teis, hh_to_children, child_to_hh):
     """
-    Interactive selection: user picks TEIs to KEEP at source.
-    Everything not selected is transferred.
+    Interactive selection: user picks TEIs to KEEP or TRANSFER.
+    Supports two modes:
+      1. Select TEIs to KEEP (everything else transfers)
+      2. Select TEIs to TRANSFER (everything else stays)
 
     Returns:
-        set of TEI UIDs to keep
+        set of TEI UIDs to keep at source (None = cancel)
     """
     hh_attr = PROGRAMS['household']['id_attribute']
     child_attr = PROGRAMS['harmonized']['id_attribute']
@@ -80,14 +82,36 @@ def interactive_select_keep(household_teis, child_teis, hh_to_children, child_to
     all_teis = household_teis + child_teis
     total = len(all_teis)
 
+    # ── Choose selection mode ──
     print(f"\n  {'═' * 70}")
-    print(f"  SELECT TEIs TO KEEP AT SOURCE")
+    print(f"  SELECTION MODE")
+    print(f"  {'═' * 70}")
+    print(f"    1. Select TEIs to KEEP at source (default)")
+    print(f"       → Everything NOT selected will be TRANSFERRED")
+    print(f"    2. Select TEIs to TRANSFER")
+    print(f"       → Everything NOT selected will be KEPT")
+    print(f"  {'═' * 70}")
+
+    while True:
+        mode = input("  Choose mode (1 or 2) [1]: ").strip() or '1'
+        if mode in ('1', '2'):
+            break
+        print("  ⚠️  Enter 1 or 2.")
+
+    select_to_transfer = (mode == '2')
+    mode_label = "TRANSFER" if select_to_transfer else "KEEP"
+
+    print(f"\n  {'═' * 70}")
+    print(f"  SELECT TEIs TO {mode_label}")
     print(f"  {'═' * 70}")
     print(f"  Total TEIs: {total}")
-    print(f"  Enter numbers of TEIs to KEEP (separated by commas).")
-    print(f"  Everything NOT selected will be TRANSFERRED.")
-    print(f"  Linked households/children are automatically kept together.")
-    print(f"  Enter 'none' to transfer ALL, or 'cancel' to abort.\n")
+    print(f"  Enter numbers of TEIs to {mode_label} (separated by commas).")
+    if select_to_transfer:
+        print(f"  Everything NOT selected will STAY at source.")
+    else:
+        print(f"  Everything NOT selected will be TRANSFERRED.")
+    print(f"  Linked households/children are automatically handled.")
+    print(f"  Enter 'none' to {mode_label} nothing, or 'cancel' to abort.\n")
 
     # Build numbered list
     hh_uid_set = {t['trackedEntityInstance'] for t in household_teis}
@@ -106,25 +130,41 @@ def interactive_select_keep(household_teis, child_teis, hh_to_children, child_to
         print(f"    {i:3d}. [{tei_type}] {tei_name:<25} {tei_id or '(no ID)':<30} ({uid})")
 
     while True:
-        choice = input(f"\n  TEIs to KEEP (e.g., 1,3,5 or 'none' or 'cancel'): ").strip()
+        choice = input(f"\n  TEIs to {mode_label} (e.g., 1,3,5 or 'none' or 'cancel'): ").strip()
 
         if choice.lower() == 'cancel':
             return None
 
         if choice.lower() == 'none':
-            print(f"  ℹ️  No TEIs selected to keep — ALL {total} will be transferred.")
+            if select_to_transfer:
+                print(f"  ℹ️  No TEIs selected to transfer — ALL {total} will STAY at source.")
+            else:
+                print(f"  ℹ️  No TEIs selected to keep — ALL {total} will be TRANSFERRED.")
             confirm = input("  Confirm? (yes/no): ").strip().lower()
             if confirm in ('yes', 'y'):
-                return set()
+                if select_to_transfer:
+                    return set(t['trackedEntityInstance'] for t in all_teis)  # Keep all
+                else:
+                    return set()  # Transfer all
             continue
 
         try:
             indices = [int(n.strip()) for n in choice.split(',')]
             if all(1 <= n <= total for n in indices):
-                keep_uids = {numbered[n - 1][1] for n in indices}
-                kept_labels = [f"{numbered[n-1][2]}:{numbered[n-1][4]} ({numbered[n-1][3]})" for n in indices]
-                print(f"  ✅ Keeping: {', '.join(kept_labels)}")
-                return keep_uids
+                selected_uids = {numbered[n - 1][1] for n in indices}
+                selected_labels = [f"{numbered[n-1][2]}:{numbered[n-1][4]} ({numbered[n-1][3]})" for n in indices]
+
+                if select_to_transfer:
+                    # In transfer mode: selected = transfer, so keep = all - selected
+                    keep_uids = {t['trackedEntityInstance'] for t in all_teis} - selected_uids
+                    print(f"  ✅ Transferring: {', '.join(selected_labels)}")
+                    print(f"  ✅ Keeping {len(keep_uids)} others at source")
+                    return keep_uids
+                else:
+                    # In keep mode: selected = keep, transfer = all - selected
+                    keep_uids = selected_uids
+                    print(f"  ✅ Keeping: {', '.join(selected_labels)}")
+                    return keep_uids
             else:
                 print(f"  ⚠️  Numbers must be between 1 and {total}.")
         except ValueError:
