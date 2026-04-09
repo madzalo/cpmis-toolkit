@@ -11,6 +11,7 @@ import datetime
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from shared.dhis2_client import api_post, api_put, api_get, DHIS2_URL, SESSION
+from shared.id_utils import PROGRAMS
 
 
 def build_transfer_payload(tei, dest_ou_uid, id_mapping=None):
@@ -84,19 +85,29 @@ def build_transfer_payload(tei, dest_ou_uid, id_mapping=None):
     return payload
 
 
-def update_tei_attribute(tei_uid, attribute_uid, new_value):
+def update_tei_attribute(tei_uid, attribute_uid, new_value, program_id=None):
     """
     Update a single attribute on a TEI using PUT.
     This is needed because the bulk POST import doesn't reliably update attributes.
 
+    Args:
+        tei_uid: TEI UID to update
+        attribute_uid: attribute UID to set
+        new_value: new attribute value
+        program_id: DHIS2 program ID (required to fetch program-scoped attributes)
+
     Returns:
         (success: bool, error_msg: str)
     """
-    # First fetch the current TEI to get all attributes
-    data = api_get(f'/api/trackedEntityInstances/{tei_uid}.json', params={
+    # Fetch TEI with program to ensure program-scoped attributes are included
+    fetch_params = {
         'fields': 'trackedEntityInstance,trackedEntityType,orgUnit,'
                   'attributes[attribute,value]'
-    })
+    }
+    if program_id:
+        fetch_params['program'] = program_id
+
+    data = api_get(f'/api/trackedEntityInstances/{tei_uid}.json', params=fetch_params)
     if data is None:
         return False, f"Could not fetch TEI {tei_uid} for attribute update"
 
@@ -259,8 +270,9 @@ def execute_transfer(transfer_teis, dest_ou_uid, id_mappings, output_dir='output
                 # Step 2: Update ID attribute via PUT (POST doesn't update attributes reliably)
                 id_err = ''
                 if mapping:
+                    prog_id = PROGRAMS.get(mapping.get('program_key', ''), {}).get('id', '')
                     attr_ok, attr_err = update_tei_attribute(
-                        tei_uid, mapping['attribute'], mapping['new_id']
+                        tei_uid, mapping['attribute'], mapping['new_id'], program_id=prog_id
                     )
                     if not attr_ok:
                         id_err = f"OU moved OK, but ID update failed: {attr_err}"

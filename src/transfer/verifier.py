@@ -64,8 +64,13 @@ def verify_transfer(transfer_teis, id_mappings, dest_ou_uid, hh_to_children, chi
         tei_uid = tei['trackedEntityInstance']
         mapping = id_map.get(tei_uid)
 
-        # Fetch TEI from server
-        data = api_get(f'/api/trackedEntityInstances/{tei_uid}.json', params={
+        # Determine program ID for fetching program-scoped attributes
+        prog_id = ''
+        if mapping:
+            prog_id = PROGRAMS.get(mapping.get('program_key', ''), {}).get('id', '')
+
+        # Fetch TEI from server (with program to get program-scoped attributes)
+        fetch_params = {
             'fields': (
                 'trackedEntityInstance,orgUnit,'
                 'attributes[attribute,value],'
@@ -74,7 +79,11 @@ def verify_transfer(transfer_teis, id_mappings, dest_ou_uid, hh_to_children, chi
                 'relationships[relationship,from[trackedEntityInstance[trackedEntityInstance]],'
                 'to[trackedEntityInstance[trackedEntityInstance]]]'
             )
-        })
+        }
+        if prog_id:
+            fetch_params['program'] = prog_id
+
+        data = api_get(f'/api/trackedEntityInstances/{tei_uid}.json', params=fetch_params)
 
         if data is None:
             not_found += 1
