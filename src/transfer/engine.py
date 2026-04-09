@@ -10,7 +10,7 @@ import json
 import datetime
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from shared.dhis2_client import api_post, api_get, DHIS2_URL, SESSION
+from shared.dhis2_client import api_post, api_put, api_get, DHIS2_URL, SESSION
 
 
 def build_transfer_payload(tei, dest_ou_uid, id_mapping=None):
@@ -82,6 +82,53 @@ def build_transfer_payload(tei, dest_ou_uid, id_mapping=None):
         payload['enrollments'].append(enr_copy)
 
     return payload
+
+
+def update_tei_attribute(tei_uid, attribute_uid, new_value):
+    """
+    Update a single attribute on a TEI using PUT.
+    This is needed because the bulk POST import doesn't reliably update attributes.
+
+    Returns:
+        (success: bool, error_msg: str)
+    """
+    # First fetch the current TEI to get all attributes
+    data = api_get(f'/api/trackedEntityInstances/{tei_uid}.json', params={
+        'fields': 'trackedEntityInstance,trackedEntityType,orgUnit,'
+                  'attributes[attribute,value]'
+    })
+    if data is None:
+        return False, f"Could not fetch TEI {tei_uid} for attribute update"
+
+    # Update the target attribute or add it
+    attr_updated = False
+    for attr in data.get('attributes', []):
+        if attr.get('attribute') == attribute_uid:
+            attr['value'] = new_value
+            attr_updated = True
+            break
+    if not attr_updated:
+        data.setdefault('attributes', []).append({
+            'attribute': attribute_uid,
+            'value': new_value,
+        })
+
+    # PUT the updated TEI
+    put_payload = {
+        'trackedEntityInstance': data['trackedEntityInstance'],
+        'trackedEntityType': data.get('trackedEntityType', ''),
+        'orgUnit': data.get('orgUnit', ''),
+        'attributes': data.get('attributes', []),
+    }
+
+    ok, resp = api_put(
+        f'/api/trackedEntityInstances/{tei_uid}',
+        put_payload,
+        params={'mergeMode': 'MERGE'}
+    )
+    if ok:
+        return True, ''
+    return False, resp.get('error', 'Unknown PUT error')
 
 
 def execute_transfer(transfer_teis, dest_ou_uid, id_mappings, output_dir='outputs/transfer'):
@@ -209,14 +256,24 @@ def execute_transfer(transfer_teis, dest_ou_uid, id_mappings, output_dir='output
                     'error': err_desc[:200],
                 })
             else:
+                # Step 2: Update ID attribute via PUT (POST doesn't update attributes reliably)
+                id_err = ''
+                if mapping:
+                    attr_ok, attr_err = update_tei_attribute(
+                        tei_uid, mapping['attribute'], mapping['new_id']
+                    )
+                    if not attr_ok:
+                        id_err = f"OU moved OK, but ID update failed: {attr_err}"
+                        errors.append(f"{tei_uid}: {id_err}")
+
                 success_count += 1
                 results.append({
                     'tei_uid': tei_uid,
-                    'status': 'OK',
+                    'status': 'OK' if not id_err else 'PARTIAL',
                     'old_id': old_id,
                     'new_id': new_id,
                     'events': tei_events,
-                    'error': '',
+                    'error': id_err,
                 })
         else:
             error_count += 1
