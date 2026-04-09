@@ -198,6 +198,18 @@ def execute_transfer(transfer_teis, dest_ou_uid, id_mappings, output_dir='output
         else:
             error_count += 1
             err = resp.get('error', 'Unknown error')
+            
+            # For HTTP 409, try to extract more details
+            if '409' in str(err):
+                import_summaries = resp.get('response', {}).get('importSummaries', [])
+                if import_summaries:
+                    summary = import_summaries[0]
+                    conflicts = summary.get('conflicts', [])
+                    if conflicts:
+                        conflict_details = '; '.join([c.get('value', '') for c in conflicts])
+                        err = f"{err} | Conflicts: {conflict_details}"
+                        print(f"\n    ❌ {tei_uid}: {conflict_details}")
+            
             errors.append(f"{tei_uid}: {err}")
             results.append({
                 'tei_uid': tei_uid,
