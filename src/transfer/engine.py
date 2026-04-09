@@ -135,6 +135,29 @@ def execute_transfer(transfer_teis, dest_ou_uid, id_mappings, output_dir='output
 
         payload = build_transfer_payload(tei, dest_ou_uid, mapping)
 
+        # Debug: Log attribute values being sent (first TEI only)
+        if i == 1:
+            print(f"\n  🔍 DEBUG - Sample payload for {tei_uid}:")
+            print(f"     OrgUnit: {tei.get('orgUnit')} → {dest_ou_uid}")
+            if mapping:
+                print(f"     ID: {mapping['old_id']} → {mapping['new_id']}")
+                print(f"     Attribute UID: {mapping['attribute']}")
+                # Check if ID attribute exists in original TEI
+                id_in_original = False
+                for attr in tei.get('attributes', []):
+                    if attr.get('attribute') == mapping['attribute']:
+                        id_in_original = True
+                        print(f"     ✓ ID attribute found in original TEI: '{attr.get('value', '')}'")
+                        break
+                if not id_in_original:
+                    print(f"     ⚠️  ID attribute NOT in original TEI - will be added")
+            print(f"     Attributes in original TEI: {len(tei.get('attributes', []))}")
+            print(f"     Attributes in payload: {len(payload.get('attributes', []))}")
+            for attr in payload.get('attributes', []):
+                if mapping and attr.get('attribute') == mapping['attribute']:
+                    print(f"       → ID Attribute in payload: {attr['attribute']} = '{attr['value']}'")
+            print()
+
         # Count events in this TEI
         tei_events = sum(len(e.get('events', [])) for e in tei.get('enrollments', []))
 

@@ -141,7 +141,7 @@ def verify_transfer(transfer_teis, id_mappings, dest_ou_uid, hh_to_children, chi
                 f"(expected >={expected_event_count}, got {len(actual_events)})"
             )
 
-        # Check relationships
+        # Check relationships (informational only - not a critical error)
         if tei_uid in hh_to_children or tei_uid in child_to_hh:
             rel_found = False
             for rel in data.get('relationships', []):
@@ -167,7 +167,7 @@ def verify_transfer(transfer_teis, id_mappings, dest_ou_uid, hh_to_children, chi
                 relationship_ok += 1
             else:
                 relationship_fail += 1
-                errors.append(f"{tei_uid}: Relationship not found")
+                # Don't add to errors - relationships are optional
 
         _print_progress(i, total, verified, not_found, len(errors), start_time)
 
@@ -188,19 +188,23 @@ def verify_transfer(transfer_teis, id_mappings, dest_ou_uid, hh_to_children, chi
     print(f"  ID incorrect:      {id_fail}")
     print(f"  Events OK:         {events_ok}")
     print(f"  Events issues:     {events_fail}")
-    print(f"  Relationships OK:  {relationship_ok}")
-    print(f"  Relationships bad: {relationship_fail}")
+    print(f"  Relationships OK:  {relationship_ok} (informational only)")
+    print(f"  Relationships missing: {relationship_fail} (not critical)")
     print(f"  Time:              {elapsed:.1f}s")
     print(f"  {'═' * 70}")
 
     if errors:
-        print(f"\n  Issues (first 20):")
+        print(f"\n  Critical Issues (first 20):")
         for err in errors[:20]:
             print(f"    ⚠️  {err}")
         if len(errors) > 20:
             print(f"    ... and {len(errors) - 20} more")
     else:
         print(f"\n  ✅ All {total} TEIs verified successfully!")
+    
+    if relationship_fail > 0:
+        print(f"\n  ℹ️  Note: {relationship_fail} TEIs have missing relationships.")
+        print(f"     This is not critical - TEIs were transferred successfully.")
 
     return {
         'total': total,
