@@ -55,10 +55,14 @@ def api_post(path, payload, params=None, timeout=90, retries=3):
                 body = resp.json()
                 msg = body.get('message', '') or body.get('response', {}).get('description', '')
                 err = f"HTTP {resp.status_code}: {msg[:200]}" if msg else f"HTTP {resp.status_code}"
+                # Return full body for detailed error analysis (import summaries, conflicts, etc.)
+                body['error'] = err
+                if attempt == retries:
+                    return False, body
             except Exception:
                 err = f"HTTP {resp.status_code}: {resp.text[:200]}"
-            if attempt == retries:
-                return False, {'error': err}
+                if attempt == retries:
+                    return False, {'error': err, 'raw_text': resp.text[:500]}
         except Exception as e:
             err = str(e)[:200]
             if attempt == retries:
