@@ -91,6 +91,23 @@ def update_tei_attribute(tei_uid, attribute_uid, new_value, program_id=None):
     Returns:
         (success: bool, error_msg: str)
     """
+    # Check if new_value already exists on another TEI (unique constraint)
+    check_params = {
+        'filter': f'{attribute_uid}:EQ:{new_value}',
+        'fields': 'trackedEntityInstance',
+        'ouMode': 'ALL',
+        'pageSize': 1
+    }
+    if program_id:
+        check_params['program'] = program_id
+    
+    existing = api_get('/api/trackedEntityInstances.json', params=check_params)
+    if existing:
+        existing_teis = existing.get('trackedEntityInstances', [])
+        for t in existing_teis:
+            if t.get('trackedEntityInstance') != tei_uid:
+                return False, f"ID '{new_value}' already exists on TEI {t.get('trackedEntityInstance')}"
+    
     # Fetch TEI with program to ensure program-scoped attributes are included
     fetch_params = {
         'fields': 'trackedEntityInstance,trackedEntityType,orgUnit,'
