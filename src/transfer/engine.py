@@ -77,36 +77,70 @@ def build_transfer_payload(tei, dest_ou_uid):
     return payload
 
 
-def update_tei_attribute(tei_uid, attribute_uid, new_value, program_id=None):
+def update_tei_attribute(tei_uid, attribute_uid, new_value, program_id=None, dest_ou_code=None):
     """
     Update a single attribute on a TEI using POST with strategy=UPDATE.
     This is needed because the bulk POST import doesn't reliably update attributes.
+    
+    If the new_value already exists, will auto-increment the sequence number and retry
+    up to 10 times to find an available ID.
 
     Args:
         tei_uid: TEI UID to update
         attribute_uid: attribute UID to set
         new_value: new attribute value
         program_id: DHIS2 program ID (required to fetch program-scoped attributes)
+        dest_ou_code: destination OU code (e.g. 'DE_KAPH') for auto-incrementing IDs
 
     Returns:
-        (success: bool, error_msg: str)
+        (success: bool, error_msg: str, final_value: str)
     """
-    # Check if new_value already exists on another TEI (unique constraint)
-    check_params = {
-        'filter': f'{attribute_uid}:EQ:{new_value}',
-        'fields': 'trackedEntityInstance',
-        'ouMode': 'ALL',
-        'pageSize': 1
-    }
-    if program_id:
-        check_params['program'] = program_id
+    from shared.id_utils import extract_sequence_number, build_id
     
-    existing = api_get('/api/trackedEntityInstances.json', params=check_params)
-    if existing:
-        existing_teis = existing.get('trackedEntityInstances', [])
-        for t in existing_teis:
-            if t.get('trackedEntityInstance') != tei_uid:
-                return False, f"ID '{new_value}' already exists on TEI {t.get('trackedEntityInstance')}"
+    attempted_value = new_value
+    max_retries = 10
+    
+    for attempt in range(max_retries):
+        # Check if attempted_value already exists on another TEI (unique constraint)
+        check_params = {
+            'filter': f'{attribute_uid}:EQ:{attempted_value}',
+            'fields': 'trackedEntityInstance',
+            'ouMode': 'ALL',
+            'pageSize': 1
+        }
+        if program_id:
+            check_params['program'] = program_id
+        
+        existing = api_get('/api/trackedEntityInstances.json', params=check_params)
+        conflict_found = False
+        if existing:
+            existing_teis = existing.get('trackedEntityInstances', [])
+            for t in existing_teis:
+                if t.get('trackedEntityInstance') != tei_uid:
+                    conflict_found = True
+                    break
+        
+        if not conflict_found:
+            # No conflict - proceed with this value
+            break
+        
+        # Conflict found - increment sequence and retry
+        if dest_ou_code and attempt < max_retries - 1:
+            seq = extract_sequence_number(attempted_value)
+            if seq is not None:
+                # Extract type code from ID (e.g., 'OVC' from 'DE_KAPH_OVC_00000001')
+                parts = attempted_value.split('_')
+                if len(parts) >= 3:
+                    type_code = parts[2]
+                    new_seq = seq + 1
+                    attempted_value = build_id(dest_ou_code, type_code, new_seq)
+                    continue
+        
+        # Can't increment or max retries reached
+        return False, f"ID '{attempted_value}' already exists on TEI {existing_teis[0].get('trackedEntityInstance')}", attempted_value
+    
+    if attempt >= max_retries - 1 and conflict_found:
+        return False, f"Could not find available ID after {max_retries} attempts", attempted_value
     
     # Fetch TEI with program to ensure program-scoped attributes are included
     fetch_params = {
@@ -118,20 +152,7 @@ def update_tei_attribute(tei_uid, attribute_uid, new_value, program_id=None):
 
     data = api_get(f'/api/trackedEntityInstances/{tei_uid}.json', params=fetch_params)
     if data is None:
-        return False, f"Could not fetch TEI {tei_uid} for attribute update"
-
-    # Update the target attribute or add it
-    attr_updated = False
-    for attr in data.get('attributes', []):
-        if attr.get('attribute') == attribute_uid:
-            attr['value'] = new_value
-            attr_updated = True
-            break
-    if not attr_updated:
-        data.setdefault('attributes', []).append({
-            'attribute': attribute_uid,
-            'value': new_value,
-        })
+        return False, f"Could not fetch TEI {tei_uid} for attribute update", attempted_value
 
     # POST with strategy=UPDATE to update just the attribute
     # This is more reliable than PUT and matches DHIS2 best practices
@@ -140,7 +161,7 @@ def update_tei_attribute(tei_uid, attribute_uid, new_value, program_id=None):
             'trackedEntityInstance': data['trackedEntityInstance'],
             'trackedEntityType': data.get('trackedEntityType', ''),
             'orgUnit': data.get('orgUnit', ''),
-            'attributes': [{'attribute': attribute_uid, 'value': new_value}]
+            'attributes': [{'attribute': attribute_uid, 'value': attempted_value}]
         }]
     }
 
@@ -153,11 +174,11 @@ def update_tei_attribute(tei_uid, attribute_uid, new_value, program_id=None):
         }
     )
     if ok:
-        return True, ''
-    return False, resp.get('error', 'Unknown update error')
+        return True, '', attempted_value
+    return False, resp.get('error', 'Unknown update error'), attempted_value
 
 
-def execute_transfer(transfer_teis, dest_ou_uid, id_mappings, output_dir='outputs/transfer'):
+def execute_transfer(transfer_teis, dest_ou_uid, id_mappings, output_dir='outputs/transfer', dest_ou_code=None):
     """
     Execute the transfer of TEIs to the destination org unit.
 
@@ -169,6 +190,7 @@ def execute_transfer(transfer_teis, dest_ou_uid, id_mappings, output_dir='output
         dest_ou_uid: destination org unit UID
         id_mappings: list of id mapping dicts from id_generator
         output_dir: directory for saving transfer log
+        dest_ou_code: destination OU code (e.g. 'DE_KAPH') for auto-incrementing IDs
 
     Returns:
         (success_count, error_count, log_file)
@@ -260,12 +282,14 @@ def execute_transfer(transfer_teis, dest_ou_uid, id_mappings, output_dir='output
                     'error': err_desc[:200],
                 })
             else:
-                # Step 2: Update ID attribute via PUT (POST doesn't update attributes reliably)
+                # Step 2: Update ID attribute via POST UPDATE (with auto-retry on conflict)
                 id_err = ''
+                final_id = new_id
                 if mapping:
                     prog_id = PROGRAMS.get(mapping.get('program_key', ''), {}).get('id', '')
-                    attr_ok, attr_err = update_tei_attribute(
-                        tei_uid, mapping['attribute'], mapping['new_id'], program_id=prog_id
+                    attr_ok, attr_err, final_id = update_tei_attribute(
+                        tei_uid, mapping['attribute'], mapping['new_id'], 
+                        program_id=prog_id, dest_ou_code=dest_ou_code
                     )
                     if not attr_ok:
                         id_err = f"OU moved OK, but ID update failed: {attr_err}"
@@ -276,7 +300,7 @@ def execute_transfer(transfer_teis, dest_ou_uid, id_mappings, output_dir='output
                     'tei_uid': tei_uid,
                     'status': 'OK' if not id_err else 'PARTIAL',
                     'old_id': old_id,
-                    'new_id': new_id,
+                    'new_id': final_id,  # Use final_id which may have been auto-incremented
                     'events': tei_events,
                     'error': id_err,
                 })

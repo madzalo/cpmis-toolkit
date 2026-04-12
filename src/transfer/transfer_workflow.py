@@ -236,7 +236,7 @@ def run_interactive():
     print(f"  {'─' * 70}")
 
     success, errors_count, log_file = execute_transfer(
-        transfer_teis, dest_uid, id_mappings, OUTPUT_DIR
+        transfer_teis, dest_uid, id_mappings, OUTPUT_DIR, dest_ou_code=dest_code
     )
 
     # ── Step 13: Verify ──
