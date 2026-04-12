@@ -13,17 +13,10 @@ from shared.id_utils import (
 )
 
 
-def get_dest_max_sequences(dest_ou_uid, dest_ou_code):
+def get_dest_max_sequences(dest_ou_uid):
     """
-    Find the current max sequence numbers for IDs at the destination by searching
-    SYSTEM-WIDE for IDs matching the destination OU code pattern.
-    
-    This prevents duplicate IDs when a TEI exists elsewhere with the same ID pattern
-    (e.g., from a previous transfer, or not enrolled in the program).
-
-    Args:
-        dest_ou_uid: destination org unit UID
-        dest_ou_code: destination org unit code (e.g. 'DE_KAPH')
+    Query the destination org unit to find the current max sequence numbers
+    for both Household IDs and Child UICs.
 
     Returns:
         dict: {'household': int, 'harmonized': int}
@@ -31,17 +24,12 @@ def get_dest_max_sequences(dest_ou_uid, dest_ou_code):
     max_seqs = {}
 
     for program_key, program in PROGRAMS.items():
-        type_code = program['type_code']
-        id_prefix = f"{dest_ou_code}_{type_code}_"
-        id_attr = program['id_attribute']
+        print(f"  📡 Querying {program['name']} at destination...", end='', flush=True)
 
-        print(f"  📡 Searching system-wide for IDs: {id_prefix}*...", end='', flush=True)
-
-        # Search system-wide for any TEI with an ID matching the destination pattern
         params = {
-            'filter': f'{id_attr}:LIKE:{id_prefix}',
+            'ou': dest_ou_uid,
+            'program': program['id'],
             'fields': f'attributes[attribute,value]',
-            'ouMode': 'ALL',
             'paging': 'false',
         }
         data = api_get('/api/trackedEntityInstances.json', params=params)
@@ -52,9 +40,9 @@ def get_dest_max_sequences(dest_ou_uid, dest_ou_code):
             continue
 
         existing_teis = data.get('trackedEntityInstances', [])
-        max_seq = get_max_sequence_from_teis(existing_teis, id_attr)
+        max_seq = get_max_sequence_from_teis(existing_teis, program['id_attribute'])
         max_seqs[program_key] = max_seq
-        print(f" ✅ {len(existing_teis)} TEIs found, max seq: {max_seq}")
+        print(f" ✅ {len(existing_teis)} existing TEIs, max seq: {max_seq}")
 
     return max_seqs
 
@@ -71,8 +59,8 @@ def generate_transfer_ids(transfer_teis, dest_ou_code, dest_ou_uid):
     Returns:
         list of dicts: [{'tei_uid', 'old_id', 'new_id', 'type_code', 'program_key'}, ...]
     """
-    # Get current max sequences by searching system-wide for matching ID patterns
-    max_seqs = get_dest_max_sequences(dest_ou_uid, dest_ou_code)
+    # Get current max sequences at destination
+    max_seqs = get_dest_max_sequences(dest_ou_uid)
 
     id_mappings = []
     hh_seq = max_seqs.get('household', 0)

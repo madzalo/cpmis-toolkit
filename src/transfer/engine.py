@@ -10,7 +10,7 @@ import json
 import datetime
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from shared.dhis2_client import api_post, api_put, api_get, DHIS2_URL, SESSION
+from shared.dhis2_client import api_post, api_get, DHIS2_URL, SESSION
 from shared.id_utils import PROGRAMS
 
 
@@ -79,7 +79,7 @@ def build_transfer_payload(tei, dest_ou_uid):
 
 def update_tei_attribute(tei_uid, attribute_uid, new_value, program_id=None):
     """
-    Update a single attribute on a TEI using PUT.
+    Update a single attribute on a TEI using POST with strategy=UPDATE.
     This is needed because the bulk POST import doesn't reliably update attributes.
 
     Args:
@@ -133,22 +133,28 @@ def update_tei_attribute(tei_uid, attribute_uid, new_value, program_id=None):
             'value': new_value,
         })
 
-    # PUT the updated TEI
-    put_payload = {
-        'trackedEntityInstance': data['trackedEntityInstance'],
-        'trackedEntityType': data.get('trackedEntityType', ''),
-        'orgUnit': data.get('orgUnit', ''),
-        'attributes': data.get('attributes', []),
+    # POST with strategy=UPDATE to update just the attribute
+    # This is more reliable than PUT and matches DHIS2 best practices
+    update_payload = {
+        'trackedEntityInstances': [{
+            'trackedEntityInstance': data['trackedEntityInstance'],
+            'trackedEntityType': data.get('trackedEntityType', ''),
+            'orgUnit': data.get('orgUnit', ''),
+            'attributes': [{'attribute': attribute_uid, 'value': new_value}]
+        }]
     }
 
-    ok, resp = api_put(
-        f'/api/trackedEntityInstances/{tei_uid}',
-        put_payload,
-        params={'mergeMode': 'MERGE'}
+    ok, resp = api_post(
+        '/api/trackedEntityInstances',
+        update_payload,
+        params={
+            'strategy': 'UPDATE',
+            'mergeMode': 'MERGE'
+        }
     )
     if ok:
         return True, ''
-    return False, resp.get('error', 'Unknown PUT error')
+    return False, resp.get('error', 'Unknown update error')
 
 
 def execute_transfer(transfer_teis, dest_ou_uid, id_mappings, output_dir='outputs/transfer'):
@@ -191,7 +197,7 @@ def execute_transfer(transfer_teis, dest_ou_uid, id_mappings, output_dir='output
     print(f"  TEIs to transfer:  {total}")
     print(f"  Events to move:    {total_events}")
     print(f"  Destination:       {dest_ou_uid}")
-    print(f"  Method:            Step 1: POST (move OU + events)  Step 2: PUT (update ID)")
+    print(f"  Method:            Step 1: POST (move OU + events)  Step 2: POST UPDATE (update ID)")
     print(f"  {'═' * 70}\n")
 
     start_time = time.time()
