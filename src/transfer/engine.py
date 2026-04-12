@@ -77,6 +77,40 @@ def build_transfer_payload(tei, dest_ou_uid):
     return payload
 
 
+def update_enrollment_ou(enrollment_uid, dest_ou_uid):
+    """
+    Update an enrollment's orgUnit using the enrollments API.
+    This is necessary because POST /api/trackedEntityInstances doesn't 
+    reliably update enrollment orgUnits.
+    
+    Args:
+        enrollment_uid: Enrollment UID to update
+        dest_ou_uid: Destination org unit UID
+        
+    Returns:
+        (success: bool, error_msg: str)
+    """
+    # Fetch the enrollment
+    data = api_get(f'/api/enrollments/{enrollment_uid}.json', params={
+        'fields': '*'
+    })
+    if data is None:
+        return False, f"Could not fetch enrollment {enrollment_uid}"
+    
+    # Update orgUnit
+    data['orgUnit'] = dest_ou_uid
+    
+    # PUT the updated enrollment
+    ok, resp = api_post(
+        '/api/enrollments',
+        {'enrollments': [data]},
+        params={'strategy': 'UPDATE'}
+    )
+    if ok:
+        return True, ''
+    return False, resp.get('error', 'Unknown enrollment update error')
+
+
 def update_tei_attribute(tei_uid, attribute_uid, new_value, program_id=None, dest_ou_code=None):
     """
     Update a single attribute on a TEI using POST with strategy=UPDATE.
@@ -219,7 +253,7 @@ def execute_transfer(transfer_teis, dest_ou_uid, id_mappings, output_dir='output
     print(f"  TEIs to transfer:  {total}")
     print(f"  Events to move:    {total_events}")
     print(f"  Destination:       {dest_ou_uid}")
-    print(f"  Method:            Step 1: POST (move OU + events)  Step 2: POST UPDATE (update ID)")
+    print(f"  Method:            Step 1: POST (TEI)  Step 2: POST (enrollments)  Step 3: POST (ID)")
     print(f"  {'═' * 70}\n")
 
     start_time = time.time()
@@ -282,7 +316,17 @@ def execute_transfer(transfer_teis, dest_ou_uid, id_mappings, output_dir='output
                     'error': err_desc[:200],
                 })
             else:
-                # Step 2: Update ID attribute via POST UPDATE (with auto-retry on conflict)
+                # Step 2: Update enrollment orgUnits separately (POST doesn't update them reliably)
+                enr_err = ''
+                for enrollment in tei.get('enrollments', []):
+                    enr_uid = enrollment.get('enrollment')
+                    if enr_uid:
+                        enr_ok, enr_msg = update_enrollment_ou(enr_uid, dest_ou_uid)
+                        if not enr_ok:
+                            enr_err = f"Enrollment {enr_uid} update failed: {enr_msg}"
+                            break
+                
+                # Step 3: Update ID attribute via POST UPDATE (with auto-retry on conflict)
                 id_err = ''
                 final_id = new_id
                 if mapping:
@@ -292,17 +336,20 @@ def execute_transfer(transfer_teis, dest_ou_uid, id_mappings, output_dir='output
                         program_id=prog_id, dest_ou_code=dest_ou_code
                     )
                     if not attr_ok:
-                        id_err = f"OU moved OK, but ID update failed: {attr_err}"
+                        id_err = f"ID update failed: {attr_err}"
                         errors.append(f"{tei_uid}: {id_err}")
 
+                # Combine errors
+                combined_err = ' | '.join(filter(None, [enr_err, id_err]))
+                
                 success_count += 1
                 results.append({
                     'tei_uid': tei_uid,
-                    'status': 'OK' if not id_err else 'PARTIAL',
+                    'status': 'OK' if not combined_err else 'PARTIAL',
                     'old_id': old_id,
                     'new_id': final_id,  # Use final_id which may have been auto-incremented
                     'events': tei_events,
-                    'error': id_err,
+                    'error': combined_err,
                 })
         else:
             error_count += 1
