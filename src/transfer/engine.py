@@ -291,16 +291,30 @@ def execute_transfer(transfer_teis, dest_ou_uid, id_mappings, output_dir='output
             error_count += 1
             err = resp.get('error', 'Unknown error')
             
-            # For HTTP 409, try to extract more details
+            # For HTTP 409, extract and print detailed conflict information
             if '409' in str(err):
+                print(f"\n    ❌ HTTP 409 CONFLICT for {tei_uid}")
+                print(f"       Full response: {json.dumps(resp, indent=2)[:1000]}")
+                
                 import_summaries = resp.get('response', {}).get('importSummaries', [])
                 if import_summaries:
                     summary = import_summaries[0]
+                    status = summary.get('status', '')
+                    description = summary.get('description', '')
                     conflicts = summary.get('conflicts', [])
+                    
+                    print(f"       Status: {status}")
+                    print(f"       Description: {description}")
+                    
                     if conflicts:
+                        print(f"       Conflicts:")
+                        for c in conflicts:
+                            print(f"         - {c.get('object', '')}: {c.get('value', '')}")
                         conflict_details = '; '.join([c.get('value', '') for c in conflicts])
-                        err = f"{err} | Conflicts: {conflict_details}"
-                        print(f"\n    ❌ {tei_uid}: {conflict_details}")
+                        err = f"{err} | {conflict_details}"
+                    else:
+                        print(f"       (No conflicts array in response)")
+                        err = f"{err} | {description}"
             
             errors.append(f"{tei_uid}: {err}")
             results.append({
