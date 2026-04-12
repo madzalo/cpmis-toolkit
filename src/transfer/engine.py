@@ -14,15 +14,16 @@ from shared.dhis2_client import api_post, api_put, api_get, DHIS2_URL, SESSION
 from shared.id_utils import PROGRAMS
 
 
-def build_transfer_payload(tei, dest_ou_uid, id_mapping=None):
+def build_transfer_payload(tei, dest_ou_uid):
     """
     Build a full TEI payload for import with updated orgUnit on the TEI,
-    all enrollments, and all events. Optionally update the ID attribute.
+    all enrollments, and all events. Attributes are kept as-is (the ID
+    attribute is updated in a separate PUT step to avoid unique-constraint
+    conflicts).
 
     Args:
         tei: full TEI dict (with enrollments/events)
         dest_ou_uid: destination org unit UID
-        id_mapping: dict with 'attribute' and 'new_id' keys, or None
 
     Returns:
         dict: TEI payload ready for POST
@@ -35,23 +36,14 @@ def build_transfer_payload(tei, dest_ou_uid, id_mapping=None):
         'enrollments': [],
     }
 
-    # Copy attributes, updating the ID if needed
-    id_attr_updated = False
+    # Copy attributes AS-IS (keep original values including old ID).
+    # The ID attribute will be updated in a separate PUT step after the
+    # POST succeeds. This avoids DHIS2 unique-constraint rejections when
+    # the new ID happens to already exist during the orgUnit move.
     for attr in tei.get('attributes', []):
-        attr_copy = {
+        payload['attributes'].append({
             'attribute': attr['attribute'],
             'value': attr.get('value', ''),
-        }
-        if id_mapping and attr['attribute'] == id_mapping['attribute']:
-            attr_copy['value'] = id_mapping['new_id']
-            id_attr_updated = True
-        payload['attributes'].append(attr_copy)
-
-    # If ID attribute wasn't in original attributes, add it now
-    if id_mapping and not id_attr_updated:
-        payload['attributes'].append({
-            'attribute': id_mapping['attribute'],
-            'value': id_mapping['new_id'],
         })
 
     # Copy enrollments and their events, updating orgUnit on each
@@ -191,33 +183,22 @@ def execute_transfer(transfer_teis, dest_ou_uid, id_mappings, output_dir='output
         tei_uid = tei['trackedEntityInstance']
         mapping = id_map.get(tei_uid)
 
-        payload = build_transfer_payload(tei, dest_ou_uid, mapping)
-
-        # Debug: Log attribute values being sent (first TEI only)
-        if i == 1:
-            print(f"\n  🔍 DEBUG - Sample payload for {tei_uid}:")
-            print(f"     OrgUnit: {tei.get('orgUnit')} → {dest_ou_uid}")
-            if mapping:
-                print(f"     ID: {mapping['old_id']} → {mapping['new_id']}")
-                print(f"     Attribute UID: {mapping['attribute']}")
-                # Check if ID attribute exists in original TEI
-                id_in_original = False
-                for attr in tei.get('attributes', []):
-                    if attr.get('attribute') == mapping['attribute']:
-                        id_in_original = True
-                        print(f"     ✓ ID attribute found in original TEI: '{attr.get('value', '')}'")
-                        break
-                if not id_in_original:
-                    print(f"     ⚠️  ID attribute NOT in original TEI - will be added")
-            print(f"     Attributes in original TEI: {len(tei.get('attributes', []))}")
-            print(f"     Attributes in payload: {len(payload.get('attributes', []))}")
-            for attr in payload.get('attributes', []):
-                if mapping and attr.get('attribute') == mapping['attribute']:
-                    print(f"       → ID Attribute in payload: {attr['attribute']} = '{attr['value']}'")
-            print()
+        payload = build_transfer_payload(tei, dest_ou_uid)
 
         # Count events in this TEI
         tei_events = sum(len(e.get('events', [])) for e in tei.get('enrollments', []))
+
+        # Debug: Log transfer plan (first TEI only)
+        if i == 1:
+            print(f"\n  🔍 DEBUG - Transfer plan for {tei_uid}:")
+            print(f"     Step 1 (POST): Move orgUnit {tei.get('orgUnit')} → {dest_ou_uid}")
+            print(f"     Step 1 (POST): Keep old ID in payload (avoid unique-constraint conflict)")
+            if mapping:
+                print(f"     Step 2 (PUT):  Update ID: {mapping['old_id']} → {mapping['new_id']}")
+            print(f"     Attributes: {len(payload.get('attributes', []))}")
+            print(f"     Enrollments: {len(payload.get('enrollments', []))}")
+            print(f"     Events: {tei_events}")
+            print()
 
         # POST with CREATE_AND_UPDATE strategy
         import_payload = {
