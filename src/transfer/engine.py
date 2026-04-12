@@ -174,7 +174,7 @@ def execute_transfer(transfer_teis, dest_ou_uid, id_mappings, output_dir='output
     print(f"  TEIs to transfer:  {total}")
     print(f"  Events to move:    {total_events}")
     print(f"  Destination:       {dest_ou_uid}")
-    print(f"  Method:            POST strategy=CREATE_AND_UPDATE, mergeMode=REPLACE")
+    print(f"  Method:            Step 1: POST (move OU + events)  Step 2: PUT (update ID)")
     print(f"  {'═' * 70}\n")
 
     start_time = time.time()
@@ -188,17 +188,6 @@ def execute_transfer(transfer_teis, dest_ou_uid, id_mappings, output_dir='output
         # Count events in this TEI
         tei_events = sum(len(e.get('events', [])) for e in tei.get('enrollments', []))
 
-        # Debug: Log transfer plan (first TEI only)
-        if i == 1:
-            print(f"\n  🔍 DEBUG - Transfer plan for {tei_uid}:")
-            print(f"     Step 1 (POST): Move orgUnit {tei.get('orgUnit')} → {dest_ou_uid}")
-            print(f"     Step 1 (POST): Keep old ID in payload (avoid unique-constraint conflict)")
-            if mapping:
-                print(f"     Step 2 (PUT):  Update ID: {mapping['old_id']} → {mapping['new_id']}")
-            print(f"     Attributes: {len(payload.get('attributes', []))}")
-            print(f"     Enrollments: {len(payload.get('enrollments', []))}")
-            print(f"     Events: {tei_events}")
-            print()
 
         # POST with CREATE_AND_UPDATE strategy
         import_payload = {
@@ -272,30 +261,17 @@ def execute_transfer(transfer_teis, dest_ou_uid, id_mappings, output_dir='output
             error_count += 1
             err = resp.get('error', 'Unknown error')
             
-            # For HTTP 409, extract and print detailed conflict information
-            if '409' in str(err):
-                print(f"\n    ❌ HTTP 409 CONFLICT for {tei_uid}")
-                print(f"       Full response: {json.dumps(resp, indent=2)[:1000]}")
-                
-                import_summaries = resp.get('response', {}).get('importSummaries', [])
-                if import_summaries:
-                    summary = import_summaries[0]
-                    status = summary.get('status', '')
-                    description = summary.get('description', '')
-                    conflicts = summary.get('conflicts', [])
-                    
-                    print(f"       Status: {status}")
-                    print(f"       Description: {description}")
-                    
-                    if conflicts:
-                        print(f"       Conflicts:")
-                        for c in conflicts:
-                            print(f"         - {c.get('object', '')}: {c.get('value', '')}")
-                        conflict_details = '; '.join([c.get('value', '') for c in conflicts])
-                        err = f"{err} | {conflict_details}"
-                    else:
-                        print(f"       (No conflicts array in response)")
-                        err = f"{err} | {description}"
+            # Extract conflict details from DHIS2 response
+            import_summaries = resp.get('response', {}).get('importSummaries', [])
+            if import_summaries:
+                summary = import_summaries[0]
+                description = summary.get('description', '')
+                conflicts = summary.get('conflicts', [])
+                if conflicts:
+                    conflict_details = '; '.join([c.get('value', '') for c in conflicts])
+                    err = f"{err} | {conflict_details}"
+                elif description:
+                    err = f"{err} | {description}"
             
             errors.append(f"{tei_uid}: {err}")
             results.append({
