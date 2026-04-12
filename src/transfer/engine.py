@@ -46,7 +46,7 @@ def build_transfer_payload(tei, dest_ou_uid):
             'value': attr.get('value', ''),
         })
 
-    # Copy enrollments and their events, updating orgUnit on each
+    # Copy enrollments and their events, updating orgUnit to match TEI
     for enrollment in tei.get('enrollments', []):
         enr_copy = {
             'enrollment': enrollment['enrollment'],
