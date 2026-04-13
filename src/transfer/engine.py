@@ -111,6 +111,38 @@ def update_enrollment_ou(enrollment_uid, dest_ou_uid):
     return False, resp.get('error', 'Unknown enrollment update error')
 
 
+def transfer_program_ownership(tei_uid, program_id, dest_ou_uid):
+    """
+    Transfer program ownership to the destination OU.
+    This is CRITICAL for the TEI to appear in web UI queries at the destination.
+    
+    DHIS2 uses program ownership to determine which OUs can see a TEI in queries.
+    Without transferring ownership, the TEI won't show up in Tracker Capture.
+    
+    Args:
+        tei_uid: TEI UID
+        program_id: Program UID
+        dest_ou_uid: Destination org unit UID
+        
+    Returns:
+        (success: bool, error_msg: str)
+    """
+    from shared.dhis2_client import SESSION, DHIS2_URL
+    
+    resp = SESSION.put(
+        f'{DHIS2_URL}/api/tracker/ownership/transfer',
+        params={
+            'trackedEntityInstance': tei_uid,
+            'program': program_id,
+            'ou': dest_ou_uid
+        }
+    )
+    
+    if resp.status_code in [200, 204]:
+        return True, ''
+    return False, f"Ownership transfer failed: {resp.status_code} - {resp.text[:200]}"
+
+
 def update_tei_attribute(tei_uid, attribute_uid, new_value, program_id=None, dest_ou_code=None):
     """
     Update a single attribute on a TEI using POST with strategy=UPDATE.
@@ -216,8 +248,13 @@ def execute_transfer(transfer_teis, dest_ou_uid, id_mappings, output_dir='output
     """
     Execute the transfer of TEIs to the destination org unit.
 
-    Uses POST /api/trackedEntityInstances with strategy=CREATE_AND_UPDATE
-    to update existing TEIs while preserving createdBy.
+    3-step process:
+    1. POST TEI with updated orgUnits (TEI + events)
+    2. POST enrollments separately (DHIS2 doesn't update enrollment orgUnits in step 1)
+    3. Transfer program ownership (CRITICAL for web UI visibility)
+
+    Step 3 is essential - without it, TEIs won't appear in Tracker Capture queries
+    even though the data is correctly moved in the database.
 
     Args:
         transfer_teis: list of full TEI dicts
@@ -253,7 +290,7 @@ def execute_transfer(transfer_teis, dest_ou_uid, id_mappings, output_dir='output
     print(f"  TEIs to transfer:  {total}")
     print(f"  Events to move:    {total_events}")
     print(f"  Destination:       {dest_ou_uid}")
-    print(f"  Method:            Step 1: POST (TEI + events)  Step 2: POST (enrollments)")
+    print(f"  Method:            3-step: POST (TEI+events) → POST (enrollments) → Transfer ownership")
     print(f"  {'═' * 70}\n")
 
     start_time = time.time()
@@ -327,14 +364,26 @@ def execute_transfer(transfer_teis, dest_ou_uid, id_mappings, output_dir='output
                             errors.append(f"{tei_uid}: {enr_err}")
                             break
                 
+                # Step 3: Transfer program ownership (CRITICAL for web UI visibility)
+                ownership_err = ''
+                for enrollment in tei.get('enrollments', []):
+                    program_id = enrollment.get('program')
+                    if program_id:
+                        own_ok, own_msg = transfer_program_ownership(tei_uid, program_id, dest_ou_uid)
+                        if not own_ok:
+                            ownership_err = f"Ownership transfer failed: {own_msg}"
+                            errors.append(f"{tei_uid}: {ownership_err}")
+                            break
+                
+                combined_err = enr_err or ownership_err
                 success_count += 1
                 results.append({
                     'tei_uid': tei_uid,
-                    'status': 'OK' if not enr_err else 'PARTIAL',
+                    'status': 'OK' if not combined_err else 'PARTIAL',
                     'old_id': old_id,
                     'new_id': old_id,  # Keep original ID (no ID update)
                     'events': tei_events,
-                    'error': enr_err,
+                    'error': combined_err,
                 })
         else:
             error_count += 1
