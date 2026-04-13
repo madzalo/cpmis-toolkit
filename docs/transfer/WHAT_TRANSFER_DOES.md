@@ -85,7 +85,7 @@ When you transfer a TEI from **Source OU** to **Destination OU**, we update thes
 
 ---
 
-## The 3-Step Process
+## The 4-Step Process
 
 ### Step 1: Update TEI and Events
 ```http
@@ -151,9 +151,42 @@ PUT /api/tracker/ownership/transfer?trackedEntityInstance=Tz4EVwE6aIX&program=xh
 - Without this step, the TEI is moved in the database but **invisible in the web UI**
 - Direct API fetch works, but Tracker Capture queries return 0 results
 
+### Step 4: Update ID Attributes
+```http
+POST /api/trackedEntityInstances
+{
+  "trackedEntityInstances": [{
+    "trackedEntityInstance": "Tz4EVwE6aIX",
+    "attributes": [{
+      "attribute": "cxr1eaTGEBO",  // Child UIC attribute
+      "value": "DE_KAPH_OVC_00000002"  // New ID matching destination OU
+    }]
+  }]
+}
+```
+
+**Parameters**:
+- `strategy=UPDATE` - Update existing TEI
+- `mergeMode=MERGE` - Merge attribute changes
+
+**What happens**:
+- ✅ ID attribute updated to match destination OU code
+- ✅ Auto-increments if ID already exists at destination
+- ✅ Standardizes IDs across the system
+
+**Example ID changes**:
+- `DE_DEDZ_HH_00000001` → `DE_KAPH_HH_00000001`
+- `DE_DEDZ_HH_00000020` → `DE_KAPH_HH_00000002`
+- `DE_KAPH_OVC_00000002` → `DE_KAPH_OVC_00000011` (if 1-10 exist)
+
+**Why this matters**:
+- IDs should reflect where the TEI actually belongs
+- Prevents confusion when IDs don't match the OU
+- Maintains ID standardization across the system
+
 ---
 
-## Why 3 Steps?
+## Why 4 Steps?
 
 **DHIS2 API Limitations**:
 
@@ -171,6 +204,12 @@ PUT /api/tracker/ownership/transfer?trackedEntityInstance=Tz4EVwE6aIX&program=xh
    - ✅ Updates the `programOwners` table
    - ✅ Makes TEI visible in Tracker Capture queries
    - ✅ Web UI can now find and display the TEI
+
+4. **Step 4 standardizes IDs**: Updating ID attributes:
+   - ✅ IDs match the destination OU code
+   - ✅ Prevents confusion (e.g., DE_DEDZ IDs at TA Kaphuka)
+   - ✅ Maintains system-wide ID standardization
+   - ✅ Auto-increments to avoid conflicts
 
 ---
 
