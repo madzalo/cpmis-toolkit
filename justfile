@@ -196,6 +196,10 @@ transfer:
 verify:
     PYTHONPATH=src ./venv/bin/python src/transfer/verify_at_destination.py
 
+# Comprehensive web UI verification (checks API, enrollments, TEI query, analytics)
+verify-web tei_uid ou_uid:
+    PYTHONPATH=src ./venv/bin/python src/transfer/verify_web_ui.py --tei {{tei_uid}} --ou {{ou_uid}}
+
 # Clear DHIS2 cache (fixes web UI not showing transferred TEIs)
 clear-cache:
     PYTHONPATH=src ./venv/bin/python src/transfer/clear_dhis2_cache.py
@@ -399,6 +403,7 @@ help:
     @echo "OU Transfer (Move TEIs between org units):"
     @echo "  just transfer                        - 🚀 Interactive transfer workflow"
     @echo "  just verify                          - Show transferred TEIs (with names)"
+    @echo "  just verify-web <tei> <ou>           - Comprehensive web UI verification"
     @echo "  just clear-cache                     - Clear DHIS2 cache (fixes web UI)"
     @echo "  just transfer-verify                 - Re-run verification on last transfer"
     @echo ""
