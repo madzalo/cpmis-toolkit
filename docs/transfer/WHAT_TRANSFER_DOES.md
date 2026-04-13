@@ -85,7 +85,7 @@ When you transfer a TEI from **Source OU** to **Destination OU**, we update thes
 
 ---
 
-## The 2-Step Process
+## The 3-Step Process
 
 ### Step 1: Update TEI and Events
 ```http
@@ -136,16 +136,41 @@ POST /api/enrollments
 **What happens**:
 - ✅ Enrollment orgUnit updated
 
+### Step 3: Transfer Program Ownership (CRITICAL!)
+```http
+PUT /api/tracker/ownership/transfer?trackedEntityInstance=Tz4EVwE6aIX&program=xhzwCCKzFBM&ou=vkM60NDTFE8
+```
+
+**What happens**:
+- ✅ Program ownership transferred to destination OU
+- ✅ TEI now appears in Tracker Capture queries at destination
+- ✅ Web UI can now see the TEI
+
+**Why this is critical**:
+- DHIS2 uses program ownership to determine which OUs can see a TEI in queries
+- Without this step, the TEI is moved in the database but **invisible in the web UI**
+- Direct API fetch works, but Tracker Capture queries return 0 results
+
 ---
 
-## Why 2 Steps?
+## Why 3 Steps?
 
-**DHIS2 API Limitation**: When you POST a TEI with enrollments, DHIS2:
-- ✅ Updates the TEI's orgUnit
-- ✅ Updates event orgUnits
-- ❌ **Does NOT update enrollment orgUnits** (even though they're in the payload!)
+**DHIS2 API Limitations**:
 
-This is why we need a separate POST to `/api/enrollments` to update enrollment orgUnits.
+1. **Step 1 limitation**: When you POST a TEI with enrollments, DHIS2:
+   - ✅ Updates the TEI's orgUnit
+   - ✅ Updates event orgUnits
+   - ❌ **Does NOT update enrollment orgUnits** (even though they're in the payload!)
+
+2. **Step 2 limitation**: Even after updating enrollment orgUnits, DHIS2:
+   - ✅ Data is correct in database
+   - ✅ Direct API fetch works
+   - ❌ **TEI queries return 0** because ownership wasn't transferred
+
+3. **Step 3 fixes visibility**: Transferring program ownership:
+   - ✅ Updates the `programOwners` table
+   - ✅ Makes TEI visible in Tracker Capture queries
+   - ✅ Web UI can now find and display the TEI
 
 ---
 
