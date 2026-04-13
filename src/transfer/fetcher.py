@@ -11,13 +11,98 @@ from shared.dhis2_client import api_get, fetch_paged, DHIS2_URL, SESSION
 from shared.id_utils import PROGRAMS
 
 
+def fetch_teis_via_enrollments(org_unit_uid, program_key, year_start, year_end, page_size=50):
+    """
+    Fetch TEIs via enrollments API (workaround for TEI query caching issues).
+    
+    Returns list of TEI dicts with nested enrollments/events.
+    """
+    program = PROGRAMS[program_key]
+    program_id = program['id']
+    
+    # Date range for enrollment filter
+    start_date = f"{year_start}-01-01"
+    end_date = f"{year_end}-12-31"
+    
+    print(f"  📡 Fetching {program['name']} enrollments from {org_unit_uid} "
+          f"(enrolled {year_start}-{year_end})...")
+    
+    # First, get enrollments at this OU
+    enr_resp = SESSION.get(
+        f'{DHIS2_URL}/api/enrollments.json',
+        params={
+            'ou': org_unit_uid,
+            'program': program_id,
+            'enrollmentEnrolledAfter': start_date,
+            'enrollmentEnrolledBefore': end_date,
+            'fields': 'enrollment,trackedEntityInstance',
+            'pageSize': 1000
+        }
+    )
+    
+    if enr_resp.status_code != 200:
+        print(f"\r  ⚠️  Enrollment query failed: {enr_resp.status_code}".ljust(80))
+        return []
+    
+    enrollments = enr_resp.json().get('enrollments', [])
+    tei_uids = list(set(e.get('trackedEntityInstance') for e in enrollments if e.get('trackedEntityInstance')))
+    
+    print(f"\r  📡 Found {len(enrollments)} enrollments for {len(tei_uids)} unique TEIs".ljust(80))
+    
+    if not tei_uids:
+        print(f"\r  ✅ Fetched 0 TEIs, 0 events".ljust(80))
+        return []
+    
+    # Fetch full TEI details for each
+    all_teis = []
+    for i, tei_uid in enumerate(tei_uids, 1):
+        print(f"\r  📡 Fetching TEI details: [{i}/{len(tei_uids)}]".ljust(80), end='', flush=True)
+        
+        tei_data = api_get(f'/api/trackedEntityInstances/{tei_uid}.json', params={
+            'program': program_id,
+            'fields': (
+                'trackedEntityInstance,trackedEntityType,orgUnit,created,createdBy,'
+                'attributes[attribute,displayName,value,created,lastUpdated],'
+                'enrollments[enrollment,program,orgUnit,enrollmentDate,incidentDate,'
+                'status,created,createdBy,'
+                'events[event,program,programStage,orgUnit,eventDate,dueDate,'
+                'status,created,createdBy,'
+                'dataValues[dataElement,value,created,lastUpdated,storedBy]]],'
+                'relationships[relationship,relationshipType,from[trackedEntityInstance[trackedEntityInstance]],'
+                'to[trackedEntityInstance[trackedEntityInstance]]]'
+            )
+        })
+        
+        if tei_data:
+            all_teis.append(tei_data)
+    
+    # Count events
+    total_events = sum(
+        len(ev)
+        for tei in all_teis
+        for enr in tei.get('enrollments', [])
+        for ev in [enr.get('events', [])]
+    )
+    
+    print(f"\r  ✅ Fetched {len(all_teis)} TEIs, {total_events} events".ljust(80))
+    return all_teis
+
+
 def fetch_teis_full(org_unit_uid, program_key, year_start, year_end, page_size=50):
     """
     Fetch TEIs with full enrollments, events, and relationships for a given
     org unit, program, and enrollment year range.
+    
+    Uses enrollments API as primary method (more reliable after transfers).
 
     Returns list of TEI dicts with nested enrollments/events.
     """
+    # Try enrollments API first (works better after transfers)
+    teis = fetch_teis_via_enrollments(org_unit_uid, program_key, year_start, year_end, page_size)
+    if teis:
+        return teis
+    
+    # Fallback to direct TEI query (for backwards compatibility)
     program = PROGRAMS[program_key]
     program_id = program['id']
 
