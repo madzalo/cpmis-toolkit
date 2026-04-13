@@ -196,6 +196,10 @@ transfer:
 verify:
     PYTHONPATH=src ./venv/bin/python src/transfer/verify_at_destination.py
 
+# Clear DHIS2 cache (fixes web UI not showing transferred TEIs)
+clear-cache:
+    PYTHONPATH=src ./venv/bin/python src/transfer/clear_dhis2_cache.py
+
 # Re-run verification on last transfer
 transfer-verify:
     PYTHONPATH=src ./venv/bin/python src/transfer/transfer_workflow.py --verify
@@ -395,6 +399,7 @@ help:
     @echo "OU Transfer (Move TEIs between org units):"
     @echo "  just transfer                        - 🚀 Interactive transfer workflow"
     @echo "  just verify                          - Show transferred TEIs (with names)"
+    @echo "  just clear-cache                     - Clear DHIS2 cache (fixes web UI)"
     @echo "  just transfer-verify                 - Re-run verification on last transfer"
     @echo ""
     @echo "Sync Rescue (Import unsynced Android data):"
