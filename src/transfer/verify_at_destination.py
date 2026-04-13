@@ -164,6 +164,110 @@ def verify_specific_tei(tei_uid, program_key='harmonized'):
     return data
 
 
+def verify_from_latest_log():
+    """
+    Read the latest transfer log and display transferred TEIs with names.
+    """
+    import glob
+    import csv
+    
+    # Find latest transfer log
+    log_files = glob.glob('outputs/transfer/transfer_log_*.csv')
+    if not log_files:
+        print("❌ No transfer logs found in outputs/transfer/")
+        print("\nRun 'just transfer' first to create a transfer.")
+        return
+    
+    latest_log = max(log_files, key=os.path.getmtime)
+    
+    import datetime
+    
+    print(f"\n{'═' * 80}")
+    print(f"TRANSFERRED TEIs FROM LATEST TRANSFER")
+    print(f"{'═' * 80}")
+    print(f"Log file: {latest_log}")
+    mod_time = datetime.datetime.fromtimestamp(os.path.getmtime(latest_log))
+    print(f"Date: {mod_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    
+    # Read transfer log
+    with open(latest_log, 'r') as f:
+        reader = csv.DictReader(f)
+        rows = list(reader)
+    
+    if not rows:
+        print("\n⚠️  Transfer log is empty")
+        return
+    
+    print(f"\nTotal TEIs in log: {len(rows)}")
+    successful = [r for r in rows if r.get('status') in ['OK', 'PARTIAL']]
+    print(f"Successfully transferred: {len(successful)}")
+    
+    if not successful:
+        print("\n⚠️  No successful transfers found")
+        return
+    
+    print(f"\n{'─' * 80}")
+    print("TRANSFERRED TEI DETAILS")
+    print(f"{'─' * 80}\n")
+    
+    # Fetch details for each transferred TEI
+    for i, row in enumerate(successful, 1):
+        tei_uid = row.get('tei_uid')
+        old_id = row.get('old_id', 'N/A')
+        new_id = row.get('new_id', 'N/A')
+        status = row.get('status', 'UNKNOWN')
+        error = row.get('error', '')
+        
+        # Fetch TEI details
+        tei_data = api_get(f'/api/trackedEntityInstances/{tei_uid}.json', params={
+            'program': PROGRAMS['harmonized']['id'],  # Try harmonized first
+            'fields': 'trackedEntityInstance,orgUnit,attributes[attribute,displayName,value],'
+                     'enrollments[enrollment,orgUnit,program,enrollmentDate]'
+        })
+        
+        if not tei_data:
+            # Try household program
+            tei_data = api_get(f'/api/trackedEntityInstances/{tei_uid}.json', params={
+                'program': PROGRAMS['household']['id'],
+                'fields': 'trackedEntityInstance,orgUnit,attributes[attribute,displayName,value],'
+                         'enrollments[enrollment,orgUnit,program,enrollmentDate]'
+            })
+        
+        if tei_data:
+            name = get_tei_name(tei_data.get('attributes', []))
+            child_uic = get_child_uic(tei_data.get('attributes', []))
+            hh_id = get_household_id(tei_data.get('attributes', []))
+            tei_ou = get_ou_name(tei_data.get('orgUnit'))
+            
+            print(f"[{i}/{len(successful)}] {tei_uid}")
+            print(f"  Name:       {name}")
+            if child_uic != 'N/A':
+                print(f"  Child UIC:  {child_uic}")
+            if hh_id != 'N/A':
+                print(f"  HH ID:      {hh_id}")
+            print(f"  Current OU: {tei_ou}")
+            print(f"  Old ID:     {old_id}")
+            print(f"  New ID:     {new_id}")
+            print(f"  Status:     {status}")
+            if error:
+                print(f"  Error:      {error}")
+            
+            # Show enrollments
+            for e in tei_data.get('enrollments', []):
+                enr_ou = get_ou_name(e.get('orgUnit'))
+                print(f"  Enrollment: {e.get('enrollment')}")
+                print(f"    OU:       {enr_ou}")
+                print(f"    Date:     {e.get('enrollmentDate', 'N/A')}")
+        else:
+            print(f"[{i}/{len(successful)}] {tei_uid}")
+            print(f"  ⚠️  Could not fetch TEI details")
+            print(f"  Old ID:     {old_id}")
+            print(f"  New ID:     {new_id}")
+            print(f"  Status:     {status}")
+        
+        print()
+
+
 if __name__ == '__main__':
     import argparse
     
@@ -183,7 +287,5 @@ if __name__ == '__main__':
         # Verify all TEIs at destination OU
         verify_by_enrollment_query(args.ou, args.program)
     else:
-        print("Usage:")
-        print("  Verify specific TEI:  python verify_at_destination.py --tei Tz4EVwE6aIX")
-        print("  Verify all at OU:     python verify_at_destination.py --ou vkM60NDTFE8")
-        print("  Verify households:    python verify_at_destination.py --ou vkM60NDTFE8 --program household")
+        # No arguments - show from latest transfer log
+        verify_from_latest_log()

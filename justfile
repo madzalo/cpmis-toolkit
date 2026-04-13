@@ -192,6 +192,10 @@ phase2-verify csv_file:
 transfer:
     PYTHONPATH=src ./venv/bin/python src/transfer/transfer_workflow.py
 
+# Show transferred TEIs from latest transfer (with names and details)
+verify:
+    PYTHONPATH=src ./venv/bin/python src/transfer/verify_at_destination.py
+
 # Re-run verification on last transfer
 transfer-verify:
     PYTHONPATH=src ./venv/bin/python src/transfer/transfer_workflow.py --verify
@@ -390,6 +394,7 @@ help:
     @echo ""
     @echo "OU Transfer (Move TEIs between org units):"
     @echo "  just transfer                        - 🚀 Interactive transfer workflow"
+    @echo "  just verify                          - Show transferred TEIs (with names)"
     @echo "  just transfer-verify                 - Re-run verification on last transfer"
     @echo ""
     @echo "Sync Rescue (Import unsynced Android data):"
