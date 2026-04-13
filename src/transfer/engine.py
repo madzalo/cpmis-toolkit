@@ -253,7 +253,7 @@ def execute_transfer(transfer_teis, dest_ou_uid, id_mappings, output_dir='output
     print(f"  TEIs to transfer:  {total}")
     print(f"  Events to move:    {total_events}")
     print(f"  Destination:       {dest_ou_uid}")
-    print(f"  Method:            Step 1: POST (TEI)  Step 2: POST (enrollments)  Step 3: POST (ID)")
+    print(f"  Method:            Step 1: POST (TEI + events)  Step 2: POST (enrollments)")
     print(f"  {'═' * 70}\n")
 
     start_time = time.time()
@@ -324,32 +324,17 @@ def execute_transfer(transfer_teis, dest_ou_uid, id_mappings, output_dir='output
                         enr_ok, enr_msg = update_enrollment_ou(enr_uid, dest_ou_uid)
                         if not enr_ok:
                             enr_err = f"Enrollment {enr_uid} update failed: {enr_msg}"
+                            errors.append(f"{tei_uid}: {enr_err}")
                             break
-                
-                # Step 3: Update ID attribute via POST UPDATE (with auto-retry on conflict)
-                id_err = ''
-                final_id = new_id
-                if mapping:
-                    prog_id = PROGRAMS.get(mapping.get('program_key', ''), {}).get('id', '')
-                    attr_ok, attr_err, final_id = update_tei_attribute(
-                        tei_uid, mapping['attribute'], mapping['new_id'], 
-                        program_id=prog_id, dest_ou_code=dest_ou_code
-                    )
-                    if not attr_ok:
-                        id_err = f"ID update failed: {attr_err}"
-                        errors.append(f"{tei_uid}: {id_err}")
-
-                # Combine errors
-                combined_err = ' | '.join(filter(None, [enr_err, id_err]))
                 
                 success_count += 1
                 results.append({
                     'tei_uid': tei_uid,
-                    'status': 'OK' if not combined_err else 'PARTIAL',
+                    'status': 'OK' if not enr_err else 'PARTIAL',
                     'old_id': old_id,
-                    'new_id': final_id,  # Use final_id which may have been auto-incremented
+                    'new_id': old_id,  # Keep original ID (no ID update)
                     'events': tei_events,
-                    'error': combined_err,
+                    'error': enr_err,
                 })
         else:
             error_count += 1
