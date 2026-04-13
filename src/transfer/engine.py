@@ -248,13 +248,14 @@ def execute_transfer(transfer_teis, dest_ou_uid, id_mappings, output_dir='output
     """
     Execute the transfer of TEIs to the destination org unit.
 
-    3-step process:
+    4-step process:
     1. POST TEI with updated orgUnits (TEI + events)
     2. POST enrollments separately (DHIS2 doesn't update enrollment orgUnits in step 1)
     3. Transfer program ownership (CRITICAL for web UI visibility)
+    4. Update ID attributes to match destination OU code
 
-    Step 3 is essential - without it, TEIs won't appear in Tracker Capture queries
-    even though the data is correctly moved in the database.
+    Step 3 is essential - without it, TEIs won't appear in Tracker Capture queries.
+    Step 4 updates IDs to match the destination OU (e.g., DE_DEDZ_HH_00000001 → DE_KAPH_HH_00000001).
 
     Args:
         transfer_teis: list of full TEI dicts
@@ -290,7 +291,7 @@ def execute_transfer(transfer_teis, dest_ou_uid, id_mappings, output_dir='output
     print(f"  TEIs to transfer:  {total}")
     print(f"  Events to move:    {total_events}")
     print(f"  Destination:       {dest_ou_uid}")
-    print(f"  Method:            3-step: POST (TEI+events) → POST (enrollments) → Transfer ownership")
+    print(f"  Method:            4-step: POST (TEI+events) → POST (enrollments) → Transfer ownership → Update IDs")
     print(f"  {'═' * 70}\n")
 
     start_time = time.time()
@@ -375,13 +376,26 @@ def execute_transfer(transfer_teis, dest_ou_uid, id_mappings, output_dir='output
                             errors.append(f"{tei_uid}: {ownership_err}")
                             break
                 
-                combined_err = enr_err or ownership_err
+                # Step 4: Update ID attribute to match destination OU code
+                id_err = ''
+                final_id = old_id  # Default to old ID if no mapping
+                if mapping:
+                    prog_id = PROGRAMS.get(mapping.get('program_key', ''), {}).get('id', '')
+                    attr_ok, attr_err, final_id = update_tei_attribute(
+                        tei_uid, mapping['attribute'], mapping['new_id'], 
+                        program_id=prog_id, dest_ou_code=dest_ou_code
+                    )
+                    if not attr_ok:
+                        id_err = f"ID update failed: {attr_err}"
+                        errors.append(f"{tei_uid}: {id_err}")
+                
+                combined_err = enr_err or ownership_err or id_err
                 success_count += 1
                 results.append({
                     'tei_uid': tei_uid,
                     'status': 'OK' if not combined_err else 'PARTIAL',
                     'old_id': old_id,
-                    'new_id': old_id,  # Keep original ID (no ID update)
+                    'new_id': final_id,  # Use final_id which may have been auto-incremented
                     'events': tei_events,
                     'error': combined_err,
                 })
