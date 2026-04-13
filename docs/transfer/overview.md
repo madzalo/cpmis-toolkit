@@ -1,7 +1,6 @@
 # OU Transfer — Overview
 
-**App:** CPMIS OU Transfer & Re-ID  
-**Purpose:** Transfer TEIs between organisation units with automatic ID regeneration  
+**Purpose:** Transfer TEIs between organisation units with automatic ID regeneration and program ownership transfer  
 **Date:** April 2026
 
 ---
@@ -22,14 +21,42 @@ During field data collection, some **Community Para Workers (CPWs)** incorrectly
 **OU Transfer** provides a safe, controlled way to:
 
 1. **Move TEIs** from incorrect org units (facilities) to correct ones (TAs)
-2. **Regenerate IDs** with correct hierarchical prefixes based on destination OU
-3. **Preserve relationships** between households and children during transfer
-4. **Maintain audit trails** by preserving `createdBy` metadata
-5. **Selective transfer** based on enrollment year ranges and user selection
+2. **Update orgUnits** on TEIs, enrollments, and all events
+3. **Transfer program ownership** to make TEIs visible in Tracker Capture web UI
+4. **Regenerate IDs** with correct hierarchical prefixes based on destination OU
+5. **Preserve relationships** between households and children during transfer
+6. **Maintain audit trails** by preserving `createdBy` metadata
 
 ---
 
 ## How It Works
+
+### The 4-Step Transfer Process
+
+Each TEI goes through a **4-step process** to ensure complete and correct transfer:
+
+#### Step 1: Update TEI and Events
+- **POST** `/api/trackedEntityInstances` with `strategy=CREATE_AND_UPDATE`
+- Updates TEI's `orgUnit` field
+- Updates all event `orgUnit` fields
+- Preserves `createdBy` and `created` metadata
+
+#### Step 2: Update Enrollments
+- **POST** `/api/enrollments` with `strategy=UPDATE`
+- Updates enrollment `orgUnit` fields
+- Required because Step 1 doesn't reliably update enrollment orgUnits (DHIS2 limitation)
+
+#### Step 3: Transfer Program Ownership (CRITICAL!)
+- **PUT** `/api/tracker/ownership/transfer`
+- Transfers program ownership to destination OU
+- **Without this step, TEIs are invisible in Tracker Capture web UI**
+- DHIS2 uses `programOwners` table to control query visibility
+
+#### Step 4: Update ID Attributes
+- **POST** `/api/trackedEntityInstances` with `strategy=UPDATE`
+- Updates Household ID or Child UIC to match destination OU code
+- Auto-increments sequence numbers to avoid conflicts
+- Example: `DE_DEDZ_HH_00000001` → `DE_KAPH_HH_00000001`
 
 ### Data Flow
 
@@ -42,7 +69,7 @@ Source OU (Facility)          Transfer Engine              Destination OU (TA)
 │ Events           │         │ 4. Transfer  │            │ Events           │
 │ Relationships    │         │ 5. Verify    │            │ Relationships    │
 └──────────────────┘         └──────────────┘            └──────────────────┘
-     (Wrong IDs)                                               (Correct IDs)
+ DE_DEDZ_HH_00000001                                      DE_KAPH_HH_00000001
 ```
 
 ### Processing Pipeline
@@ -51,11 +78,11 @@ Each transfer operation goes through a **five-step pipeline**:
 
 | Step | Name | What It Does |
 |------|------|--------------|
-| 1 | **Fetch** | Queries source OU for all TEIs (children + households) enrolled within specified year range. Fetches all enrollments, **events**, and relationships for each TEI. Builds a complete relationship graph. |
+| 1 | **Fetch** | Queries source OU for all TEIs (children + households) enrolled within specified year range. Fetches all enrollments, events, and relationships. Uses `/api/enrollments` API to work around DHIS2 caching. |
 | 2 | **Select** | User selects which TEIs to **keep** at source. All non-selected TEIs (and their related TEIs) are marked for transfer. |
-| 3 | **Re-ID** | Generates new Household IDs and Child UICs based on destination OU hierarchy. Ensures no ID collisions at destination. |
-| 4 | **Transfer** | Moves TEIs to destination OU using DHIS2 API. Updates org unit on the TEI, **every enrollment**, and **every event** (case management records, assessments, service records). Regenerates IDs. Preserves `createdBy` metadata. |
-| 5 | **Verify** | Confirms all TEIs exist at destination with correct IDs, intact relationships, and that **all events** have the correct org unit. Generates verification report. |
+| 3 | **Re-ID** | Generates new Household IDs and Child UICs based on destination OU hierarchy. Queries existing IDs at destination to find max sequence number. Ensures no ID collisions. |
+| 4 | **Transfer** | Executes the 4-step transfer process for each TEI: (1) POST TEI+events, (2) POST enrollments, (3) Transfer ownership, (4) Update IDs. Preserves `createdBy` metadata. |
+| 5 | **Verify** | Confirms all TEIs exist at destination with correct IDs, orgUnits, and intact relationships. Generates verification report. |
 
 ---
 
@@ -99,314 +126,213 @@ User keeps Child A
 
 ### ID Regeneration
 
-**New IDs reflect destination OU hierarchy:**
+**Automatic ID generation based on destination OU:**
 
-Before transfer (at facility `ZA_CHIK_LAMB`):
-```
-Household: ZA_CHIK_LAMB_HH_00000001
-Child:     ZA_CHIK_LAMB_OVC_00000001
-```
+| Source OU | Old ID | Destination OU | New ID |
+|-----------|--------|----------------|--------|
+| Dedza Boma (facility) | `DE_DEDZ_HH_00000001` | TA Kaphuka (TA) | `DE_KAPH_HH_00000001` |
+| Dedza Boma (facility) | `DE_DEDZ_OVC_00000005` | TA Kaphuka (TA) | `DE_KAPH_OVC_00000001` |
 
-After transfer (to TA `ZA_CHIK`):
-```
-Household: ZA_CHIK_HH_00000123
-Child:     ZA_CHIK_OVC_00000456
-```
+**ID Collision Prevention:**
+- Queries destination OU for existing IDs
+- Finds maximum sequence number
+- Starts new IDs from max + 1
+- Auto-increments if conflicts detected during update
 
-**Collision prevention:**
-- Queries destination OU for existing max sequence numbers
-- New IDs start from `max + 1`
-- Ensures uniqueness across the entire destination OU
+### Program Ownership Transfer
 
-### Audit Trail Preservation
+**Critical for web UI visibility:**
 
-**`createdBy` is preserved during transfer:**
-- Uses `POST` (not `PUT`) to update TEIs via DHIS2 API
-- Original creator remains unchanged in audit logs
-- `lastUpdatedBy` reflects the transfer operation (expected behavior)
+DHIS2 uses a `programOwners` table to control which OUs can see a TEI in Tracker Capture queries. Without transferring ownership:
+- ✅ Data is moved correctly in database
+- ✅ Direct API fetch works
+- ❌ **TEI queries return 0 results**
+- ❌ **Web UI shows nothing**
 
-### Comprehensive Entity Transfer
-
-**Everything moves together — no orphaned data:**
-- ✅ **Tracked Entity Instances (TEIs)** — org unit updated to destination
-- ✅ **Program Enrollments** — org unit updated to destination
-- ✅ **All Events** — every event (case management, assessments, service records) has its org unit updated. Events are the most numerous entity and must ALL be transferred to avoid split data.
-- ✅ **Relationships** — household-child links preserved (UID-based, not OU-specific)
-- ✅ **Attribute Values** — preserved except Household ID / Child UIC (regenerated)
+After ownership transfer:
+- ✅ TEI appears in Tracker Capture at destination OU
+- ✅ All queries work correctly
+- ✅ Reports show correct OU attribution
 
 ---
 
-## Typical Workflow
+## What Gets Updated
 
-### For the Administrator
+### TEI Level
+- `orgUnit` → Destination OU UID
+- `programOwners[].ownerOrgUnit` → Destination OU UID
+- Household ID or Child UIC attribute → New ID with destination OU code
 
-```bash
-# 1. Start the interactive transfer workflow
-just transfer
+### Enrollment Level
+- `orgUnit` → Destination OU UID
+- `enrollmentDate` → Preserved (not changed)
+- `incidentDate` → Preserved (not changed)
 
-# 2. Select source organisation unit (facility)
-#    → Interactive picker shows hierarchy
-#    → Example: "ZA_CHIK_LAMB (Lambulira)"
+### Event Level
+- `orgUnit` → Destination OU UID
+- `eventDate` → Preserved (not changed)
+- `dataValues` → Preserved (not changed)
 
-# 3. Select destination organisation unit (TA)
-#    → Interactive picker shows hierarchy
-#    → Example: "ZA_CHIK (TA Chikowi)"
-
-# 4. Enter enrollment year range
-#    → Single year: "2025" (fetches TEIs enrolled anytime in 2025)
-#    → Year range: "2024-2026" (fetches TEIs enrolled between 2024-2026)
-
-# 5. Preview affected records
-#    → Shows count: "Found 50 children, 35 households"
-
-# 6. Select TEIs to KEEP at source
-#    → CSV export with all TEIs
-#    → Mark which ones to keep (others will be transferred)
-#    → Or specify: "Keep first 10 by enrollment date"
-
-# 7. Review transfer preview
-#    → CSV shows: old OU, new OU, old ID, new ID
-#    → Relationship graph displayed
-
-# 8. Confirm and execute
-#    → Transfer runs with progress tracking
-#    → Verification runs automatically
-
-# 9. Review verification report
-#    → ✅ All TEIs at destination
-#    → ✅ All IDs updated correctly
-#    → ✅ All relationships intact
-```
-
-### Advanced Commands
-
-```bash
-# Preview transfer without executing
-just transfer-preview <source_uid> <dest_uid> --years 2024-2026
-
-# Transfer specific TEIs from CSV
-just transfer-apply <selection_csv>
-
-# Verify a completed transfer
-just transfer-verify <transfer_report_csv>
-
-# Transfer with automatic selection (keep first N)
-just transfer-auto <source_uid> <dest_uid> --years 2024-2026 --keep 10
-```
-
----
-
-## Data Transferred
-
-The tool transfers the following DHIS2 entities:
-
-| Entity | What Happens |
-|--------|--------------|
-| **Tracked Entity Instances (TEIs)** | `orgUnit` updated to destination, Household ID / Child UIC regenerated |
-| **Enrollments** | `orgUnit` updated to destination, dates preserved |
-| **Events** | **Every event** across all program stages has its `orgUnit` updated to destination. This includes case management events, assessments, and service delivery records. Event dates, data values, and status are all preserved. |
-| **Relationships** | Preserved (UID-based, not org-unit-specific) |
-| **Attribute Values** | Preserved except Household ID / Child UIC (regenerated) |
-
----
-
-## Configuration
-
-The app reads credentials from the shared `.env` file in the project root:
-
-```env
-# Required
-DHIS2_URL=https://cpmis.gender.gov.mw
-DHIS2_USERNAME=your_username
-DHIS2_PASSWORD=your_password
-
-# Optional (for direct DB verification)
-DB_HOST=your_database_host
-DB_PORT=5433
-DB_NAME=cpmis_copy_clone
-DB_USER=your_db_username
-DB_PASSWORD=your_db_password
-```
-
-Directories are automatically resolved relative to the project root:
-
-| Directory | Purpose |
-|-----------|---------|
-| `outputs/transfer/` | Transfer previews, selection CSVs, verification reports |
-| `outputs/transfer/completed/` | Successfully completed transfer records |
-
----
-
-## Architecture
-
-```
-src/transfer/
-├── cli.py                    # Interactive CLI workflow
-├── config.py                 # Transfer-specific configuration
-├── fetcher.py                # Fetch TEIs by OU + enrollment year range
-├── relationship_resolver.py  # Build household-child relationship graph
-├── selector.py               # Selection logic (keep vs transfer)
-├── id_generator.py           # Generate new IDs for destination OU
-├── transfer_engine.py        # Core transfer orchestration
-├── api_client.py             # DHIS2 API wrapper (POST-based updates)
-├── verifier.py               # Post-transfer verification
-└── utils.py                  # Logging, CSV handling, progress tracking
-```
-
-### Shared Utilities (Reused from Cleanup)
-
-```
-src/shared/
-├── settings.py               # DHIS2 + DB credentials (already exists)
-├── ou_picker.py              # Interactive org unit selection (extracted from Phase 2)
-├── id_utils.py               # ID generation logic (extracted from Phase 2)
-└── dhis2_client.py           # Common DHIS2 API operations (extracted from Phase 2)
-```
+### What's Preserved
+- All attributes (except IDs which are updated)
+- All enrollment dates
+- All event dates
+- All data values
+- All relationships
+- `createdBy` and `created` metadata
+- `storedBy` metadata
 
 ---
 
 ## Safety Features
 
 ### Pre-Transfer Validation
-- ✅ **Relationship integrity check** — ensures all household-child links will remain intact
-- ✅ **ID collision check** — verifies new IDs don't already exist at destination
-- ✅ **Enrollment validation** — confirms all enrollments are within specified year range
-- ✅ **Dry-run preview** — generates CSV showing exactly what will happen
+- Checks for existing IDs at destination
+- Validates relationship integrity
+- Confirms user selection
+- Shows preview of changes
 
-### During Transfer
-- ✅ **Atomic operations** — each TEI transfer is independent (partial failures don't corrupt data)
-- ✅ **Progress tracking** — real-time updates on transfer status
-- ✅ **Error logging** — detailed logs for any failed transfers
+### Atomic Operations
+- Each TEI transfer is independent
+- Failures don't affect other TEIs
+- Detailed error logging for each step
+- Rollback not needed (updates are idempotent)
 
-### Post-Transfer Verification
-- ✅ **Existence check** — confirms all TEIs exist at destination
-- ✅ **ID verification** — confirms Household IDs and Child UICs updated correctly
-- ✅ **Relationship verification** — confirms all household-child links intact
-- ✅ **Enrollment verification** — confirms enrollments moved to destination OU
-- ✅ **Event verification** — confirms events moved to destination OU
+### Audit Trail
+- Transfer logs saved to `outputs/transfer/transfer_log_*.csv`
+- Preview saved to `outputs/transfer/transfer_preview.csv`
+- Includes: TEI UID, old ID, new ID, status, errors
+- Verification results saved separately
 
-### Rollback Plan
-If a transfer needs to be reversed:
-1. Use the transfer report CSV (contains old OU, old IDs)
-2. Run reverse transfer: destination → source
-3. Restore original IDs from CSV
-4. Verify relationships intact
+### Verification
+- Confirms TEI exists at destination
+- Checks orgUnit on TEI, enrollments, and events
+- Validates ID updates
+- Verifies relationship integrity
+- Reports any discrepancies
 
 ---
 
-## Technical Considerations
+## Usage
 
-### Why POST Instead of PUT?
+### Quick Start
 
-**DHIS2 API behavior:**
-- `PUT /api/trackedEntityInstances/{uid}` → **overwrites** `lastUpdatedBy`
-- `POST /api/trackedEntityInstances` with full payload → **preserves** `createdBy`, updates `lastUpdatedBy`
-
-**Our approach:**
-- Use `POST` for TEI updates (create-and-update import strategy)
-- `createdBy` remains unchanged (original CPW)
-- `lastUpdatedBy` reflects the transfer operation (expected and acceptable)
-
-### Event Transfer Strategy
-
-**Events are the most numerous entity** — a single child may have dozens of events across multiple program stages. All events must be transferred:
-
-1. Fetch all events for each TEI being transferred
-2. Update `orgUnit` on every event to the destination OU
-3. Verify every event exists at destination after transfer
-4. If any event fails to transfer, log it for manual resolution
-
-### Relationship Resolution Algorithm
-
-```python
-def resolve_transfer_set(selected_to_keep, all_teis):
-    """
-    Given TEIs selected to KEEP, determine which TEIs must be TRANSFERRED.
-    Ensures household-child relationships remain intact.
-    """
-    keep_set = set(selected_to_keep)
-    
-    # Expand keep_set to include related TEIs
-    for tei in selected_to_keep:
-        if tei.type == "Child":
-            # Keep the child's household
-            keep_set.add(tei.household)
-        elif tei.type == "Household":
-            # Keep all children of this household
-            keep_set.update(tei.children)
-    
-    # Everything not in keep_set is transferred
-    transfer_set = all_teis - keep_set
-    
-    # Expand transfer_set to include related TEIs
-    for tei in transfer_set:
-        if tei.type == "Child":
-            # Transfer the child's household (if not already kept)
-            if tei.household not in keep_set:
-                transfer_set.add(tei.household)
-        elif tei.type == "Household":
-            # Transfer all children of this household (if not already kept)
-            transfer_set.update([c for c in tei.children if c not in keep_set])
-    
-    return transfer_set
+```bash
+just transfer
 ```
 
-### ID Generation Strategy
+Follow the interactive prompts to:
+1. Select source OU (where data was incorrectly entered)
+2. Select destination OU (correct location)
+3. Enter enrollment year range
+4. Review fetched TEIs
+5. Select which TEIs to keep at source
+6. Review ID mappings
+7. Confirm and execute transfer
+8. Review verification results
 
-**Reuses Cleanup Phase 2 logic:**
-1. Extract destination OU code from hierarchy (e.g., `ZA_CHIK`)
-2. Query destination OU for existing TEIs
-3. Find max sequence number for Household IDs
-4. Find max sequence number for Child UICs
-5. Generate new IDs starting from `max + 1`
+### Verification
 
-**Example:**
-```python
-# Destination OU: ZA_CHIK
-# Existing max: ZA_CHIK_HH_00000122
+```bash
+# Show transferred TEIs from latest transfer
+just verify
 
-# Transferring 3 households:
-ZA_CHIK_HH_00000123
-ZA_CHIK_HH_00000124
-ZA_CHIK_HH_00000125
+# Comprehensive web UI verification
+just verify-web <tei_uid> <ou_uid>
+
+# Clear DHIS2 cache if needed
+just clear-cache
 ```
 
 ---
 
-## Performance Expectations
+## Technical Details
 
-| Operation | Speed | Notes |
-|-----------|-------|-------|
-| **Fetch TEIs** | ~100 TEIs/sec | DHIS2 API query with filters |
-| **Relationship resolution** | Instant | In-memory graph traversal |
-| **ID generation** | Instant | Simple sequence increment |
-| **Transfer (API)** | ~5-10 TEIs/sec | DHIS2 API rate limits apply |
-| **Verification** | ~50 TEIs/sec | DHIS2 API queries |
+### API Endpoints Used
 
-**Estimated time for 100 TEIs:** ~2-3 minutes (fetch + transfer + verify)
+1. `/api/enrollments.json` - Fetch enrollments (more reliable than TEI query)
+2. `/api/trackedEntityInstances/{uid}.json` - Fetch full TEI details
+3. `/api/trackedEntityInstances` - POST to update TEI and events
+4. `/api/enrollments` - POST to update enrollment orgUnits
+5. `/api/tracker/ownership/transfer` - PUT to transfer program ownership
+6. `/api/organisationUnits/{uid}.json` - Fetch OU details
 
----
+### DHIS2 Limitations Addressed
 
-## Limitations & Known Issues
+1. **Enrollment orgUnit not updated by TEI POST** - Solved with separate enrollment POST
+2. **Program ownership not transferred automatically** - Solved with explicit ownership transfer
+3. **TEI query caching issues** - Solved by using enrollments API for fetching
+4. **Attribute updates in bulk POST unreliable** - Solved with separate attribute update POST
 
-### Current Limitations
-1. **Single source → single destination** — cannot split TEIs across multiple destinations in one operation
-2. **Year-based filtering only** — cannot filter by other criteria (e.g., case status, service type)
-3. **Manual selection** — no automatic rules for which TEIs to keep vs transfer
+### Performance
 
-### Future Enhancements
-- [ ] Batch transfer (multiple source OUs → multiple destinations)
-- [ ] Advanced filtering (by program stage, data element values, etc.)
-- [ ] Automatic selection rules (e.g., "keep TEIs with recent events")
-- [ ] Transfer history tracking (audit log of all transfers)
-- [ ] Undo/rollback command (automatic reversal of transfers)
+- Processes ~1.5 TEIs per second
+- Includes 4 API calls per TEI (POST TEI, POST enrollment, PUT ownership, POST ID)
+- Progress bar shows real-time status
+- Handles hundreds of TEIs efficiently
 
 ---
 
-## Getting Started
+## Troubleshooting
 
-See the main [README.md](../../README.md) for installation and setup instructions.
+### TEIs not showing in web UI after transfer
 
-For task breakdown and implementation status, see [tasks.md](tasks.md).
+**Cause**: Program ownership not transferred (Step 3 failed)
 
-For contributing guidelines, see [CONTRIBUTING.md](../../CONTRIBUTING.md).
+**Solution**:
+```bash
+# Check ownership
+just verify-web <tei_uid> <ou_uid>
+
+# If ownership is wrong, re-run transfer
+just transfer
+```
+
+### IDs not updated
+
+**Cause**: Step 4 failed (ID update)
+
+**Solution**: Check transfer log for errors. Common causes:
+- ID already exists at destination (should auto-increment)
+- Network timeout during update
+- Permission issues
+
+### Relationships broken
+
+**Cause**: Selection logic didn't include related TEIs
+
+**Solution**: The tool prevents this - if relationships would break, transfer is blocked. Review selection carefully.
+
+---
+
+## Best Practices
+
+1. **Start with small batches** - Transfer one year at a time
+2. **Verify immediately** - Run `just verify` after each transfer
+3. **Check web UI** - Confirm TEIs appear in Tracker Capture
+4. **Keep logs** - Transfer logs are saved automatically
+5. **Test first** - Try with a single TEI before bulk transfers
+
+---
+
+## Files and Directories
+
+```
+src/transfer/
+├── transfer_workflow.py    # Main interactive workflow
+├── fetcher.py              # Fetch TEIs from source OU
+├── engine.py               # Execute 4-step transfer
+├── verifier.py             # Verify transfer results
+├── verify_at_destination.py # Show transferred TEIs with names
+├── verify_web_ui.py        # Comprehensive web UI verification
+└── clear_dhis2_cache.py    # Clear DHIS2 cache
+
+outputs/transfer/
+├── transfer_log_*.csv      # Transfer execution logs
+├── transfer_preview.csv    # Preview of ID mappings
+└── verification_*.csv      # Verification results
+
+docs/transfer/
+├── overview.md             # This file
+└── tasks.md                # Detailed task breakdown
+```

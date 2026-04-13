@@ -218,17 +218,21 @@ def verify_from_latest_log():
         status = row.get('status', 'UNKNOWN')
         error = row.get('error', '')
         
-        # Fetch TEI details
-        tei_data = api_get(f'/api/trackedEntityInstances/{tei_uid}.json', params={
-            'program': PROGRAMS['harmonized']['id'],  # Try harmonized first
-            'fields': 'trackedEntityInstance,orgUnit,attributes[attribute,displayName,value],'
-                     'enrollments[enrollment,orgUnit,program,enrollmentDate]'
+        # First, fetch without program to get enrollments
+        tei_basic = api_get(f'/api/trackedEntityInstances/{tei_uid}.json', params={
+            'fields': 'trackedEntityInstance,orgUnit,enrollments[program]'
         })
         
-        if not tei_data:
-            # Try household program
+        # Detect program from enrollment
+        program_id = None
+        if tei_basic and tei_basic.get('enrollments'):
+            program_id = tei_basic['enrollments'][0].get('program')
+        
+        # Fetch TEI with program to get program-scoped attributes
+        tei_data = None
+        if program_id:
             tei_data = api_get(f'/api/trackedEntityInstances/{tei_uid}.json', params={
-                'program': PROGRAMS['household']['id'],
+                'program': program_id,
                 'fields': 'trackedEntityInstance,orgUnit,attributes[attribute,displayName,value],'
                          'enrollments[enrollment,orgUnit,program,enrollmentDate]'
             })
