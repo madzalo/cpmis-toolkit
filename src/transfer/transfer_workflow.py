@@ -23,6 +23,8 @@ import argparse
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from shared.dhis2_client import DHIS2_URL
+from shared.ui import console, header, section, ok, warn, err, ask, blank
+from rich.table import Table
 from shared.ou_picker import load_ou_codes, search_and_pick_ou
 from shared.id_utils import PROGRAMS
 
@@ -42,130 +44,107 @@ OUTPUT_DIR = 'outputs/transfer'
 
 def interactive_year_range():
     """Prompt the user for an enrollment year range."""
-    print("\n  ── Enrollment Year Range ──")
-    print("  Enter the year range to filter TEIs by enrollment date.")
-    print("  Only TEIs enrolled within this range will be considered.\n")
+    section("Enrollment Year Range")
+    console.print("  Filter TEIs by enrollment date.\n")
 
     while True:
-        start = input("  Start year (e.g. 2024): ").strip()
+        start = ask("Start year (e.g. 2024)").strip()
         try:
             year_start = int(start)
             if 2000 <= year_start <= 2100:
                 break
-            print("  ⚠️  Enter a reasonable year (2000-2100).")
+            warn("Enter a reasonable year (2000-2100).")
         except ValueError:
-            print("  ⚠️  Enter a valid year number.")
+            warn("Enter a valid year number.")
 
     while True:
-        end = input(f"  End year (e.g. 2026) [{year_start}]: ").strip() or str(year_start)
+        end = ask(f"End year (e.g. 2026) [{year_start}]").strip() or str(year_start)
         try:
             year_end = int(end)
             if year_end >= year_start:
                 break
-            print(f"  ⚠️  End year must be >= {year_start}.")
+            warn(f"End year must be >= {year_start}.")
         except ValueError:
-            print("  ⚠️  Enter a valid year number.")
+            warn("Enter a valid year number.")
 
-    print(f"  ✅ Year range: {year_start} to {year_end}")
+    ok(f"Year range: {year_start} – {year_end}")
     return year_start, year_end
 
 
 def run_interactive():
     """Run the full interactive transfer workflow."""
-    print("\n" + "=" * 80)
-    print("  OU TRANSFER — Move TEIs Between Organisation Units")
-    print("=" * 80)
-    print(f"  Server: {DHIS2_URL}")
-    print(f"  ⚠️  Read-only until you confirm the transfer.\n")
+    header("Transfer TEIs", f"DHIS2 · {DHIS2_URL}")
+    warn("Read-only until you confirm the transfer.")
+    blank()
 
-    # ── Step 1: Load org unit codes ──
-    print("  📂 Loading org unit codes from Phase 1...", end='', flush=True)
+    console.print("  📂 Loading org unit codes from Phase 1...", end="", highlight=False)
     ou_list, ou_map = load_ou_codes()
     if not ou_list:
-        print("\n  ❌ No org unit codes found. Run Phase 1 first: just task1-complete")
+        err("No org unit codes found. Run Phase 1 first: just task1-complete")
         sys.exit(1)
-    print(f" ✅ {len(ou_list)} org units loaded")
+    console.print(f" ✅ {len(ou_list)} org units loaded")
 
-    # ── Step 2: Select source org unit ──
-    print(f"\n  {'─' * 70}")
-    print(f"  STEP 1: SELECT SOURCE ORG UNIT (where data was incorrectly entered)")
-    print(f"  {'─' * 70}")
+    section("Step 1 — Source Org Unit (where data was incorrectly entered)")
     source_uid, source_name = search_and_pick_ou(ou_list, "Search SOURCE org unit (facility)")
     if source_uid == 'done':
-        print("  ❌ Cancelled.")
+        err("Cancelled.")
         sys.exit(0)
     source_info = ou_map.get(source_uid, {})
     source_code = source_info.get('code', '?')
 
-    # ── Step 3: Select destination org unit ──
-    print(f"\n  {'─' * 70}")
-    print(f"  STEP 2: SELECT DESTINATION ORG UNIT (correct location)")
-    print(f"  {'─' * 70}")
+    section("Step 2 — Destination Org Unit (correct location)")
     dest_uid, dest_name = search_and_pick_ou(ou_list, "Search DESTINATION org unit (TA)")
     if dest_uid == 'done':
-        print("  ❌ Cancelled.")
+        err("Cancelled.")
         sys.exit(0)
     dest_info = ou_map.get(dest_uid, {})
     dest_code = dest_info.get('code', '?')
 
     if source_uid == dest_uid:
-        print("  ❌ Source and destination are the same. Aborting.")
+        err("Source and destination are the same. Aborting.")
         sys.exit(1)
 
-    # ── Step 4: Year range ──
-    print(f"\n  {'─' * 70}")
-    print(f"  STEP 3: ENROLLMENT YEAR RANGE")
-    print(f"  {'─' * 70}")
+    section("Step 3 — Enrollment Year Range")
     year_start, year_end = interactive_year_range()
 
-    # ── Show configuration ──
-    print(f"\n  {'═' * 70}")
-    print(f"  TRANSFER CONFIGURATION")
-    print(f"  {'═' * 70}")
-    print(f"  Source:       {source_name} ({source_uid})")
-    print(f"  Source code:  {source_code}")
-    print(f"  Destination:  {dest_name} ({dest_uid})")
-    print(f"  Dest code:    {dest_code}")
-    print(f"  Year range:   {year_start}-{year_end}")
-    print(f"  {'═' * 70}")
+    section("Transfer Configuration")
+    t = Table(show_header=False, box=None, padding=(0, 2))
+    t.add_row("Source",      f"[cyan]{source_name}[/cyan] [dim]({source_uid})[/dim]")
+    t.add_row("Source code", f"[green]{source_code}[/green]")
+    t.add_row("Destination", f"[cyan]{dest_name}[/cyan] [dim]({dest_uid})[/dim]")
+    t.add_row("Dest code",   f"[green]{dest_code}[/green]")
+    t.add_row("Year range",  f"[bold]{year_start} – {year_end}[/bold]")
+    console.print(t)
+    blank()
 
-    confirm = input("\n  Proceed with fetching TEIs? (yes/no): ").strip().lower()
+    confirm = ask("Proceed with fetching TEIs? (yes/no)").strip().lower()
     if confirm not in ('yes', 'y'):
-        print("  ❌ Cancelled.")
+        err("Cancelled.")
         sys.exit(0)
 
-    # ── Step 5: Fetch TEIs ──
-    print(f"\n  {'─' * 70}")
-    print(f"  STEP 4: FETCHING TEIs")
-    print(f"  {'─' * 70}")
-
+    section("Step 4 — Fetching TEIs")
     household_teis = fetch_teis_full(source_uid, 'household', year_start, year_end)
     child_teis = fetch_teis_full(source_uid, 'harmonized', year_start, year_end)
 
     if not household_teis and not child_teis:
-        print(f"\n  ⚠️  No TEIs found at {source_name} for {year_start}-{year_end}.")
-        print("  Nothing to transfer.")
+        warn(f"No TEIs found at {source_name} for {year_start}-{year_end}. Nothing to transfer.")
         sys.exit(0)
 
-    # ── Step 6: Build relationship graph ──
-    print(f"\n  🔗 Building relationship graph...")
+    console.print("  🔗 Building relationship graph...", end="", highlight=False)
     hh_to_children, child_to_hh = build_relationship_graph(household_teis, child_teis)
     linked_count = sum(len(v) for v in hh_to_children.values())
-    print(f"  ✅ {linked_count} household-child links found")
+    console.print(f" ✅ {linked_count} household-child links found")
 
     # ── Step 7: Display summary ──
     display_tei_summary(household_teis, child_teis, hh_to_children, child_to_hh)
 
-    # ── Step 8: Select TEIs to keep ──
-    print(f"\n  {'─' * 70}")
-    print(f"  STEP 5: SELECT TEIs TO KEEP AT SOURCE")
-    print(f"  {'─' * 70}")
+    section("Step 5 — Select TEIs to Keep at Source")
 
     all_teis = household_teis + child_teis
     keep_uids = interactive_select_keep(household_teis, child_teis, hh_to_children, child_to_hh)
 
     if keep_uids is None:
-        print("  ❌ Cancelled.")
+        err("Cancelled.")
         sys.exit(0)
 
     # Resolve full transfer set with relationship preservation
@@ -183,83 +162,75 @@ def run_interactive():
         for ev in [enr.get('events', [])]
     )
 
-    print(f"\n  📊 Transfer Summary:")
-    print(f"     Keeping at source:   {len(keep_teis)} TEIs")
-    print(f"     Transferring:        {len(transfer_teis)} TEIs")
-    print(f"     Events to move:      {total_transfer_events}")
+    section("Transfer Summary")
+    ts = Table(show_header=False, box=None, padding=(0, 2))
+    ts.add_row("Keeping at source", f"[dim]{len(keep_teis)} TEIs[/dim]")
+    ts.add_row("Transferring",      f"[bold]{len(transfer_teis)} TEIs[/bold]")
+    ts.add_row("Events to move",    f"[bold]{total_transfer_events}[/bold]")
+    console.print(ts)
 
     if not transfer_teis:
-        print("  ℹ️  No TEIs to transfer. All selected to keep.")
+        warn("No TEIs to transfer. All selected to keep.")
         sys.exit(0)
 
-    # ── Step 9: Generate new IDs ──
-    print(f"\n  {'─' * 70}")
-    print(f"  STEP 6: GENERATING NEW IDs FOR DESTINATION")
-    print(f"  {'─' * 70}")
+    section("Step 6 — Generating New IDs for Destination")
 
     id_mappings = generate_transfer_ids(transfer_teis, dest_code, dest_uid)
 
-    print(f"\n  📋 ID Mapping Preview:")
-    print(f"  {'Old ID':<35} → {'New ID':<35}")
-    print(f"  {'─' * 75}")
+    id_tbl = Table(show_header=True, header_style="bold cyan", box=None, padding=(0, 2))
+    id_tbl.add_column("Old ID", style="dim", width=36)
+    id_tbl.add_column("→", width=3)
+    id_tbl.add_column("New ID", style="green")
     for m in id_mappings[:15]:
-        old = m['old_id'] or '(empty)'
-        print(f"  {old:<35} → {m['new_id']:<35}")
+        id_tbl.add_row(m['old_id'] or '(empty)', "→", m['new_id'])
     if len(id_mappings) > 15:
-        print(f"  ... and {len(id_mappings) - 15} more")
+        id_tbl.add_row(f"[dim]... and {len(id_mappings) - 15} more[/dim]", "", "")
+    console.print(id_tbl)
 
     # ── Step 10: Save preview ──
     preview_file = save_transfer_preview(transfer_teis, dest_uid, dest_name, OUTPUT_DIR)
 
-    # ── Step 11: Confirm and execute ──
-    print(f"\n  {'═' * 70}")
-    print(f"  READY TO TRANSFER")
-    print(f"  {'═' * 70}")
-    print(f"  TEIs:          {len(transfer_teis)}")
-    print(f"  Events:        {total_transfer_events}")
-    print(f"  From:          {source_name}")
-    print(f"  To:            {dest_name}")
-    print(f"  Preview CSV:   {preview_file}")
-    print(f"  {'═' * 70}")
-    print(f"\n  ⚠️  This will MODIFY data on the live DHIS2 server.")
-    print(f"  ⚠️  TEIs, enrollments, and ALL events will be moved.")
+    section("Ready to Transfer")
+    rt = Table(show_header=False, box=None, padding=(0, 2))
+    rt.add_row("TEIs",        f"[bold]{len(transfer_teis)}[/bold]")
+    rt.add_row("Events",      f"[bold]{total_transfer_events}[/bold]")
+    rt.add_row("From",        f"[cyan]{source_name}[/cyan]")
+    rt.add_row("To",          f"[cyan]{dest_name}[/cyan]")
+    rt.add_row("Preview CSV", f"[dim]{preview_file}[/dim]")
+    console.print(rt)
+    blank()
+    warn("This will MODIFY data on the live DHIS2 server.")
+    warn("TEIs, enrollments, and ALL events will be moved.")
 
-    confirm = input("\n  Execute transfer? (yes/no): ").strip().lower()
+    confirm = ask("Execute transfer? (yes/no)").strip().lower()
     if confirm not in ('yes', 'y'):
-        print(f"\n  ❌ Cancelled. No changes made.")
-        print(f"  Preview saved at: {preview_file}")
+        err("Cancelled. No changes made.")
+        console.print(f"  Preview saved at: [dim]{preview_file}[/dim]")
         sys.exit(0)
 
-    # ── Step 12: Execute transfer ──
-    print(f"\n  {'─' * 70}")
-    print(f"  STEP 7: EXECUTING TRANSFER")
-    print(f"  {'─' * 70}")
+    section("Step 7 — Executing Transfer")
 
     success, errors_count, log_file = execute_transfer(
         transfer_teis, dest_uid, id_mappings, OUTPUT_DIR, dest_ou_code=dest_code
     )
 
-    # ── Step 13: Verify ──
     if success > 0:
-        print(f"\n  {'─' * 70}")
-        print(f"  STEP 8: VERIFYING TRANSFER")
-        print(f"  {'─' * 70}")
+        section("Step 8 — Verifying Transfer")
 
         verify_transfer(
             transfer_teis, id_mappings, dest_uid, hh_to_children, child_to_hh
         )
 
-    # ── Final summary ──
-    print(f"\n{'=' * 80}")
-    print(f"  ✅ OU TRANSFER WORKFLOW COMPLETE")
-    print(f"{'=' * 80}")
-    print(f"  Source:        {source_name}")
-    print(f"  Destination:   {dest_name}")
-    print(f"  Transferred:   {success} TEIs")
-    print(f"  Errors:        {errors_count}")
-    print(f"  Transfer log:  {log_file}")
-    print(f"  Preview:       {preview_file}")
-    print(f"{'=' * 80}\n")
+    section("Transfer Complete")
+    fs = Table(show_header=False, box=None, padding=(0, 2))
+    fs.add_row("Source",       f"[cyan]{source_name}[/cyan]")
+    fs.add_row("Destination",  f"[cyan]{dest_name}[/cyan]")
+    fs.add_row("Transferred",  f"[bold green]{success} TEIs[/bold green]")
+    fs.add_row("Errors",       f"[{'red' if errors_count else 'green'}]{errors_count}[/{'red' if errors_count else 'green'}]")
+    fs.add_row("Transfer log", f"[dim]{log_file}[/dim]")
+    fs.add_row("Preview",      f"[dim]{preview_file}[/dim]")
+    console.print(fs)
+    blank()
 
 
 def main():

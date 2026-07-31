@@ -9,6 +9,9 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any
 from dataclasses import dataclass, field
 
+import requests
+from requests.auth import HTTPBasicAuth
+
 from config import Config, get_config
 from extractor import DataExtractor
 from validator import DataValidator
@@ -52,6 +55,91 @@ class BatchProcessor:
         self.importer = DataImporter(self.config)
         self.verifier = DataVerifier(self.config)
     
+    def _admin_auth(self) -> HTTPBasicAuth:
+        """Admin credentials from environment (.env)."""
+        return HTTPBasicAuth(
+            os.getenv("DHIS2_USERNAME", ""),
+            os.getenv("DHIS2_PASSWORD", "")
+        )
+
+    def lookup_user_from_dhis2(self, username: str) -> Optional[Dict]:
+        """Look up user details (id, firstName, surname, userRoles) via DHIS2 API."""
+        try:
+            r = requests.get(
+                f"{self.config.server}/api/users.json",
+                params={
+                    "filter": f"username:eq:{username}",
+                    "fields": "id,username,firstName,surname,userRoles[id,name]",
+                    "paging": "false",
+                },
+                auth=self._admin_auth(),
+                timeout=15,
+            )
+            if r.status_code == 200:
+                users = r.json().get("users", [])
+                return users[0] if users else None
+        except Exception as e:
+            Logger.warning(f"Could not look up {username}: {e}")
+        return None
+
+    def get_superuser_role(self) -> Optional[Dict]:
+        """Find the DHIS2 role that has the ALL authority (superuser)."""
+        try:
+            r = requests.get(
+                f"{self.config.server}/api/userRoles.json",
+                params={"paging": "false", "fields": "id,name,authorities"},
+                auth=self._admin_auth(),
+                timeout=15,
+            )
+            if r.status_code == 200:
+                for role in r.json().get("userRoles", []):
+                    if "ALL" in role.get("authorities", []):
+                        return role
+        except Exception as e:
+            Logger.warning(f"Could not fetch user roles: {e}")
+        return None
+
+    def promote_to_superuser(self, user_id: str, original_roles: List[Dict], superuser_role_id: str) -> bool:
+        """Grant superuser role to user before import."""
+        all_roles = list({r["id"] for r in original_roles} | {superuser_role_id})
+        payload = {"userRoles": [{"id": rid} for rid in all_roles]}
+        try:
+            # Try direct role-grant endpoint first
+            r = requests.post(
+                f"{self.config.server}/api/users/{user_id}/userRoles/{superuser_role_id}",
+                auth=self._admin_auth(), timeout=15,
+            )
+            if r.status_code in [200, 201, 204]:
+                return True
+            # Fallback: PATCH user with merged roles
+            r = requests.patch(
+                f"{self.config.server}/api/users/{user_id}",
+                json=payload,
+                auth=self._admin_auth(),
+                headers={"Content-Type": "application/json"},
+                timeout=15,
+            )
+            return r.status_code in [200, 204]
+        except Exception as e:
+            Logger.warning(f"Promote failed: {e}")
+            return False
+
+    def demote_from_superuser(self, user_id: str, original_roles: List[Dict]) -> bool:
+        """Restore original roles (removes superuser) after import."""
+        payload = {"userRoles": [{"id": r["id"]} for r in original_roles]}
+        try:
+            r = requests.patch(
+                f"{self.config.server}/api/users/{user_id}",
+                json=payload,
+                auth=self._admin_auth(),
+                headers={"Content-Type": "application/json"},
+                timeout=15,
+            )
+            return r.status_code in [200, 204]
+        except Exception as e:
+            Logger.warning(f"Demote failed: {e}")
+            return False
+
     def find_zip_files(self, folder: Optional[str] = None) -> List[str]:
         """Find all zip files in the imports folder."""
         folder = folder or self.config.imports_folder
@@ -61,42 +149,62 @@ class BatchProcessor:
         return sorted(glob.glob(pattern))
     
     def collect_user_details(self, zip_files: List[str]) -> List[Dict[str, str]]:
-        """Collect user details for all zip files."""
-        Logger.header("Enter User Details for All Zip Files")
-        Logger.info("Username will be extracted from zip filename")
-        Logger.info("Please provide surname only (will be capitalized for password)")
+        """Auto-lookup user details from DHIS2 — no manual input needed."""
+        Logger.header("Looking Up User Details from DHIS2")
         print()
-        
+
         user_details = []
         for i, zip_path in enumerate(zip_files, 1):
             zip_name = os.path.basename(zip_path)
             username = get_username_from_zip(zip_name)
-            
-            print(f"[{i}/{len(zip_files)}] {zip_name}")
-            print(f"  Username (from file): {username}")
-            
-            surname = input("  Surname: ").strip()
-            if not surname:
-                Logger.warning("Surname required, skipping this file")
-                continue
-            
+
+            print(f"  [{i}/{len(zip_files)}] {zip_name}")
+            print(f"    Username: {username}", end=" ... ", flush=True)
+
+            user_info = self.lookup_user_from_dhis2(username)
+            if user_info:
+                surname   = (user_info.get("surname", "") or "").strip()
+                firstname = (user_info.get("firstName", "") or "").strip()
+                user_id   = user_info.get("id", "")
+                orig_roles = user_info.get("userRoles", [])
+                if not surname:
+                    print()
+                    Logger.warning(f"No surname in DHIS2 for {username}")
+                    surname = input(f"    Enter surname for {username}: ").strip()
+                    if not surname:
+                        Logger.warning("Skipping (no surname)")
+                        continue
+            else:
+                print()
+                Logger.warning(f"User '{username}' not found in DHIS2")
+                surname = input(f"    Enter surname for {username}: ").strip()
+                if not surname:
+                    Logger.warning("Skipping (no surname)")
+                    continue
+                firstname  = username
+                user_id    = ""
+                orig_roles = []
+
             password = f"{surname.capitalize()}@2025"
-            print(f"  Password will be: {password}")
+            print(f"found → {firstname} {surname}  |  password: {password}")
             print()
-            
+
             user_details.append({
-                "zip_path": zip_path,
-                "zip_name": zip_name,
-                "username": username,
-                "firstname": username,
-                "surname": surname.capitalize(),
-                "password": password
+                "zip_path":      zip_path,
+                "zip_name":      zip_name,
+                "username":      username,
+                "firstname":     firstname,
+                "surname":       surname.capitalize(),
+                "password":      password,
+                "user_id":       user_id,
+                "original_roles": orig_roles,
             })
-        
+
         return user_details
     
-    def process_single(self, zip_path: str, username: str, password: str, 
-                       firstname: str, surname: str) -> BatchResult:
+    def process_single(self, zip_path: str, username: str, password: str,
+                       firstname: str, surname: str,
+                       user_id: str = "", original_roles: Optional[List[Dict]] = None) -> BatchResult:
         """Process a single zip file."""
         zip_name = os.path.basename(zip_path)
         start_time = datetime.now()
@@ -131,7 +239,9 @@ class BatchProcessor:
             )
         
         Logger.success(f"Found database: {db_path}")
-        
+        if original_roles is None:
+            original_roles = []
+
         # Step 1: Extract
         Logger.info("Step 1/4: Extracting data...")
         extract_result = self.extractor.extract(db_path)
@@ -141,26 +251,48 @@ class BatchProcessor:
                 surname=surname, extract_dir=extract_dir, success=False,
                 error=f"Extraction failed: {extract_result.error}"
             )
-        
-        # Step 2: Validate
-        Logger.info("Step 2/4: Validating...")
-        validate_result = self.validator.validate(username, password)
-        if not validate_result.success:
-            Logger.warning("Validation had errors, continuing anyway")
-        
-        # Step 3: Import
-        Logger.info("Step 3/4: Importing...")
-        import_result = self.importer.import_data(username, password)
-        
-        # Move import result immediately
-        if os.path.exists(self.config.import_result_file):
-            shutil.move(self.config.import_result_file, 
-                       os.path.join(extract_dir, self.config.import_result_file))
-        
-        # Step 4: Verify
-        Logger.info("Step 4/4: Verifying...")
-        verify_result = self.verifier.verify(username, password)
-        
+
+        # ── Promote to superuser before import ──────────────────────────────
+        superuser_role = self.get_superuser_role()
+        promoted = False
+        if superuser_role and user_id:
+            Logger.info(f"Promoting {username} to superuser ({superuser_role['name']})...")
+            promoted = self.promote_to_superuser(user_id, original_roles, superuser_role["id"])
+            if promoted:
+                Logger.success(f"Superuser role granted to {username}")
+            else:
+                Logger.warning(f"Could not promote {username} — import may fail due to permissions")
+
+        import_result = None
+        try:
+            # Step 2: Validate
+            Logger.info("Step 2/4: Validating...")
+            validate_result = self.validator.validate(username, password)
+            if not validate_result.success:
+                Logger.warning("Validation had errors, continuing anyway")
+
+            # Step 3: Import
+            Logger.info("Step 3/4: Importing...")
+            import_result = self.importer.import_data(username, password)
+
+            # Move import result immediately
+            if os.path.exists(self.config.import_result_file):
+                shutil.move(self.config.import_result_file,
+                            os.path.join(extract_dir, self.config.import_result_file))
+
+            # Step 4: Verify
+            Logger.info("Step 4/4: Verifying...")
+            self.verifier.verify(username, password)
+
+        finally:
+            # ── Always demote after import (even on error) ──────────────────
+            if promoted and user_id:
+                Logger.info(f"Removing superuser role from {username}...")
+                if self.demote_from_superuser(user_id, original_roles):
+                    Logger.success(f"Superuser role removed from {username}")
+                else:
+                    Logger.warning(f"⚠  Could not remove superuser from {username} — check manually!")
+
         # Move generated files to extract dir
         files_to_move = [
             self.config.payload_file,
@@ -172,9 +304,14 @@ class BatchProcessor:
         for f in files_to_move:
             if os.path.exists(f):
                 shutil.move(f, os.path.join(extract_dir, f))
-        
+
         duration = (datetime.now() - start_time).total_seconds()
-        
+        if import_result is None:
+            return BatchResult(
+                zip_file=zip_name, username=username, firstname=firstname,
+                surname=surname, extract_dir=extract_dir, success=False,
+                error="Import did not complete"
+            )
         return BatchResult(
             zip_file=zip_name,
             username=username,
@@ -238,7 +375,9 @@ class BatchProcessor:
             
             result = self.process_single(
                 ud['zip_path'], ud['username'], ud['password'],
-                ud['firstname'], ud['surname']
+                ud['firstname'], ud['surname'],
+                user_id=ud.get('user_id', ''),
+                original_roles=ud.get('original_roles', []),
             )
             results.append(result)
             

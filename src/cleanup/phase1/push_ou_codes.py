@@ -8,6 +8,9 @@ import argparse
 # Add parent directory to path to import config
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from shared.settings import DHIS2_URL, DHIS2_USERNAME, DHIS2_PASSWORD
+from shared.ui import console, header, section, ok, warn, err, ask, blank
+from rich.table import Table
+from rich.rule import Rule
 
 CSV_FILE = 'outputs/task1/ou_codes_standardized.csv'
 
@@ -22,7 +25,7 @@ SESSION.headers.update({'Content-Type': 'application/json'})
 def load_ou_rows(csv_file=CSV_FILE):
     """Load all org unit rows from the standardised CSV."""
     if not os.path.exists(csv_file):
-        print(f"  ❌ {csv_file} not found. Run Phase 1 generation first.")
+        err(f"{csv_file} not found. Run Phase 1 generation first.")
         sys.exit(1)
     with open(csv_file, 'r') as f:
         reader = csv.DictReader(f)
@@ -57,14 +60,14 @@ def interactive_select_scope(rows):
     """Let user pick scope interactively."""
     districts = get_districts(rows)
 
-    print("\n  ── Select Scope ──")
-    print("    1. Single org unit")
-    print("    2. Single district (all org units within)")
-    print("    3. Multiple districts")
-    print("    4. All org units")
+    section("Select Scope")
+    console.print("    1. Single org unit")
+    console.print("    2. Single district (all org units within)")
+    console.print("    3. Multiple districts")
+    console.print("    4. All org units")
 
     while True:
-        choice = input("\n  Pick scope (1-4): ").strip()
+        choice = ask("Pick scope (1-4)").strip()
         if choice == '1':
             return interactive_pick_ou(rows)
         elif choice == '2':
@@ -73,25 +76,25 @@ def interactive_select_scope(rows):
             return interactive_pick_district(districts, multi=True)
         elif choice == '4':
             return 'all', []
-        print("  ⚠️  Enter 1-4.")
+        warn("Enter 1-4.")
 
 
 def interactive_pick_ou(rows):
     """Search and pick a single org unit."""
     while True:
-        query = input("\n  🔍 Search org unit (name or code): ").strip().lower()
+        query = ask("🔍 Search org unit (name or code)").strip().lower()
         if not query:
             continue
         matches = [r for r in rows if query in r['ou_name'].lower() or query in r['standardised_code'].lower()]
         if not matches:
-            print("  No matches. Try again.")
+            warn("No matches. Try again.")
             continue
-        print(f"\n  Found {len(matches)} matches:")
+        console.print(f"\n  Found [bold]{len(matches)}[/bold] matches:")
         for i, r in enumerate(matches[:20], 1):
-            print(f"    {i:>3}. {r['ou_name']:<40} L{r['ou_level']}  {r['standardised_code']:<12} ({r['dhis2_uid']})")
+            console.print(f"    {i:>3}. [cyan]{r['ou_name']:<40}[/cyan] L{r['ou_level']}  [green]{r['standardised_code']:<12}[/green] [dim]({r['dhis2_uid']})[/dim]")
         if len(matches) > 20:
-            print(f"    ... and {len(matches) - 20} more. Refine your search.")
-        pick = input(f"\n  Pick a number (1-{min(len(matches), 20)}), or Enter to search again: ").strip()
+            console.print(f"    [dim]... and {len(matches) - 20} more. Refine your search.[/dim]")
+        pick = ask(f"Pick a number (1-{min(len(matches), 20)}), or Enter to search again").strip()
         if pick.isdigit() and 1 <= int(pick) <= min(len(matches), 20):
             chosen = matches[int(pick) - 1]
             return 'single', [chosen['dhis2_uid']]
@@ -99,43 +102,35 @@ def interactive_pick_ou(rows):
 
 def interactive_pick_district(districts, multi=False):
     """Pick district(s) from numbered list."""
-    print(f"\n  Available districts ({len(districts)}):")
+    console.print(f"\n  [bold]Available districts ({len(districts)}):[/bold]")
     for i, d in enumerate(districts, 1):
-        print(f"    {i:>3}. {d['ou_name']:<40} {d['standardised_code']:<12}")
-    
+        console.print(f"    [dim]{i:>3}.[/dim] [cyan]{d['ou_name']:<40}[/cyan] [green]{d['standardised_code']:<12}[/green]")
+
     if multi:
-        prompt = f"\n  Pick districts (comma-separated numbers, e.g., 1,3,5): "
+        prompt = "Pick districts (comma-separated numbers, e.g., 1,3,5)"
     else:
-        prompt = f"\n  Pick a district (1-{len(districts)}): "
-    
+        prompt = f"Pick a district (1-{len(districts)})"
+
     while True:
-        pick = input(prompt).strip()
+        pick = ask(prompt).strip()
         if not pick:
-            print("  ❌ Please enter a number.")
+            err("Please enter a number.")
             continue
-        
-        # Parse comma-separated numbers
+
         try:
-            if ',' in pick:
-                numbers = [int(n.strip()) for n in pick.split(',')]
-            else:
-                numbers = [int(pick)]
-            
-            # Validate all numbers are in range
+            numbers = [int(n.strip()) for n in pick.split(',')]
             if all(1 <= n <= len(districts) for n in numbers):
                 selected = [districts[n - 1]['standardised_code'] for n in numbers]
                 selected_names = [districts[n - 1]['ou_name'] for n in numbers]
-                
-                print(f"  ✅ Selected: {', '.join(selected_names)}")
-                
+                ok(f"Selected: {', '.join(selected_names)}")
                 if multi or len(numbers) > 1:
                     return 'districts', selected
                 else:
                     return 'district', selected
             else:
-                print(f"  ❌ Invalid number(s). Please enter numbers between 1 and {len(districts)}.")
+                err(f"Invalid number(s). Enter numbers between 1 and {len(districts)}.")
         except ValueError:
-            print("  ❌ Invalid input. Please enter number(s) separated by commas.")
+            err("Invalid input. Enter number(s) separated by commas.")
 
 
 # ─── Push to DHIS2 ────────────────────────────────────────────────────────
@@ -161,11 +156,10 @@ def push_rows(rows, dry_run=False, batch_size=1000):
     skipped = len(rows) - len(valid)
 
     mode = "DRY RUN" if dry_run else "LIVE"
-    print(f"\n  ── Pushing {len(valid)} org units ({mode}) ──")
-    print(f"  Server: {DHIS2_URL}")
+    section(f"Pushing {len(valid)} org units ({mode})")
+    console.print(f"  Server: [cyan]{DHIS2_URL}[/cyan]")
     if skipped:
-        print(f"  Skipped (no code): {skipped}")
-    print()
+        warn(f"Skipped (no code): {skipped}")
 
     success = 0
     errors = 0
@@ -245,27 +239,29 @@ def push_rows(rows, dry_run=False, batch_size=1000):
         print()  # New line after progress
 
     elapsed = time.time() - start_time
-    print(f"\n  {'DRY RUN ' if dry_run else ''}Summary:")
-    print(f"  Total:     {len(valid)}")
-    print(f"  Success:   {success}")
-    print(f"  Errors:    {errors}")
+    t = Table(show_header=False, box=None, padding=(0, 2))
+    t.add_row("Total",   str(len(valid)))
+    t.add_row("Success", f"[green]{success}[/green]")
+    t.add_row("Errors",  f"[{'red' if errors else 'green'}]{errors}[/{'red' if errors else 'green'}]")
     if skipped:
-        print(f"  Skipped:   {skipped}")
+        t.add_row("Skipped", str(skipped))
     if not dry_run:
-        print(f"  Time:      {elapsed:.1f}s")
-        print(f"  Rate:      {success/elapsed:.1f} OUs/s")
+        t.add_row("Time",  f"{elapsed:.1f}s")
+        t.add_row("Rate",  f"{success/elapsed:.1f} OUs/s")
+    section("Summary")
+    console.print(t)
 
     if error_details:
-        print(f"\n  Errors:")
-        for err in error_details[:10]:
-            print(f"    ❌ {err}")
+        section("Errors")
+        for e in error_details[:10]:
+            err(e)
         if len(error_details) > 10:
-            print(f"    ... and {len(error_details) - 10} more")
+            console.print(f"  [dim]... and {len(error_details) - 10} more[/dim]")
 
     if dry_run:
-        print("\n  ℹ️  Dry run — no changes were made to DHIS2.")
+        console.print("\n  [dim]Dry run — no changes were made to DHIS2.[/dim]")
     else:
-        print(f"\n  ✅ Organisation unit codes updated in DHIS2!")
+        ok("Organisation unit codes updated in DHIS2!")
 
     return success, errors
 
@@ -280,23 +276,24 @@ def preview_rows(rows):
         lvl = r.get('ou_level', '?')
         by_level.setdefault(lvl, []).append(r)
 
-    print(f"\n  ══════════════════════════════════════════════════════════════════════")
-    print(f"  PREVIEW: {len(valid)} org units to update")
-    print(f"  ══════════════════════════════════════════════════════════════════════")
+    section(f"Preview: {len(valid)} org units to update")
     for lvl in sorted(by_level.keys()):
         items = by_level[lvl]
         sample = ', '.join(r['standardised_code'] for r in items[:5])
-        suffix = f' ... +{len(items)-5} more' if len(items) > 5 else ''
-        print(f"  L{lvl}: {len(items):>4} org units  ({sample}{suffix})")
+        suffix = f' +{len(items)-5} more' if len(items) > 5 else ''
+        console.print(f"  L{lvl}: [bold]{len(items):>4}[/bold] org units  [dim]({sample}{suffix})[/dim]")
 
-    print(f"\n  Sample (first 15):")
-    print(f"  {'Name':<40} {'Level':<6} {'Code':<15}")
-    print(f"  {'─' * 65}")
+    t = Table(show_header=True, header_style="bold cyan", box=None, padding=(0, 2))
+    t.add_column("Name", style="white", width=42)
+    t.add_column("Level", style="dim", width=6)
+    t.add_column("Code", style="green")
     for r in valid[:15]:
-        print(f"  {r['ou_name']:<40} L{r.get('ou_level', '?'):<5} {r['standardised_code']:<15}")
+        t.add_row(r['ou_name'], f"L{r.get('ou_level', '?')}", r['standardised_code'])
     if len(valid) > 15:
-        print(f"  ... and {len(valid) - 15} more")
-    print()
+        t.add_row(f"[dim]... and {len(valid) - 15} more[/dim]", "", "")
+    console.print()
+    console.print(t)
+    console.print()
 
 
 # ─── Validate ──────────────────────────────────────────────────────────────
@@ -366,18 +363,13 @@ def main():
         validate_codes_in_dhis2()
         return
 
-    print("\n" + "=" * 80)
-    print("  PHASE 1: PUSH ORGANISATION UNIT CODES")
-    print("=" * 80)
-    print(f"  Server: {DHIS2_URL}")
     mode = "DRY RUN" if args.dry_run else "LIVE"
-    print(f"  Mode:   {mode}")
+    header("Standardise Org Units", f"DHIS2 · {DHIS2_URL}  ·  Mode: {mode}")
 
-    # Load CSV
-    print(f"\n  📂 Loading org unit codes...", end='', flush=True)
+    console.print("  📂 Loading org unit codes...", end="", highlight=False)
     all_rows = load_ou_rows(args.csv)
     districts = get_districts(all_rows)
-    print(f" ✅ {len(all_rows)} org units ({len(districts)} districts)")
+    console.print(f" ✅ {len(all_rows)} org units ({len(districts)} districts)")
 
     # ── Determine scope ──
     if args.org_unit:
@@ -425,25 +417,23 @@ def main():
             target_rows = all_rows
             scope_label = "All org units"
 
-    print(f"\n  ── Configuration ──")
-    print(f"  Scope:     {scope_label}")
-    print(f"  Org units: {len(target_rows)}")
-    print(f"  Mode:      {mode}")
+    section("Configuration")
+    console.print(f"  Scope:     [cyan]{scope_label}[/cyan]")
+    console.print(f"  Org units: [bold]{len(target_rows)}[/bold]")
+    console.print(f"  Mode:      [{'yellow' if mode == 'DRY RUN' else 'bold green'}]{mode}[/{'yellow' if mode == 'DRY RUN' else 'bold green'}]")
 
     # Preview
     preview_rows(target_rows)
 
-    # Confirm if live
     if not args.dry_run:
-        print(f"  ⚠️  This will update {len(target_rows)} org units on the live DHIS2 server.")
-        confirm = input("  Proceed? (yes/no): ").strip().lower()
+        warn(f"This will update {len(target_rows)} org units on the live DHIS2 server.")
+        confirm = ask("Proceed? (yes/no)").strip().lower()
         if confirm not in ['yes', 'y']:
-            print("\n  ❌ Cancelled. No changes made.")
+            err("Cancelled. No changes made.")
             return
 
-    # Push
     push_rows(target_rows, dry_run=args.dry_run)
-    print("=" * 80 + "\n")
+    blank()
 
 
 if __name__ == "__main__":
