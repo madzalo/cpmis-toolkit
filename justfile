@@ -9,20 +9,41 @@ default:
 # SETUP
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# Install system dependencies (requires sudo)
-install-deps:
-    @echo "Installing python3-venv..."
-    sudo apt install python3.12-venv -y
-
-# Setup virtual environment and install dependencies
+# Setup — install dependencies via uv (creates .venv automatically)
 setup:
-    python3 -m venv venv
-    ./venv/bin/pip install --upgrade pip
-    ./venv/bin/pip install -r requirements.txt
-    @echo "Setup complete! Virtual environment created in ./venv"
+    uv sync
+    @echo "Setup complete! Virtual environment created in ./.venv"
 
-# Complete setup (install system deps + setup venv)
-init: install-deps setup
+# Complete setup (same as setup — uv handles everything)
+init: setup
+
+# Install build dependencies (pyinstaller + pillow)
+setup-build:
+    uv sync --extra build
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# UNIFIED ENTRY POINT — Interactive menu for all tools
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Run the unified toolkit (interactive menu with all 4 tools)
+run:
+    PYTHONPATH=src uv run python main.py
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PACKAGING — Build standalone Windows .exe
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Generate cpmis.ico from cpmis.png (enlarged to 512x512 for crisp icon at all sizes)
+icon:
+    uv run python -c "from PIL import Image; img = Image.open('cpmis.png').convert('RGBA'); size = 512; img = img.resize((size, size), Image.LANCZOS); canvas = Image.new('RGBA', (size, size), (255, 255, 255, 0)); canvas.paste(img, (0, 0), img); canvas.save('cpmis.ico', format='ICO', sizes=[(16,16),(32,32),(48,48),(64,64),(128,128),(256,256)]); print('Saved cpmis.ico (enlarged to 512x512)')"
+
+# Build a standalone .exe using PyInstaller (with icon)
+build: icon
+    uv run pyinstaller cpmis_toolkit.spec --noconfirm
+    @echo "Build complete! Check the dist/ folder for 'CPMIS Toolkit v<version>.exe'"
+
+# Setup and build in one go
+all: setup setup-build build
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # CLEANUP — Phase 1: Organisation Unit Codes
@@ -30,55 +51,55 @@ init: install-deps setup
 
 # Export organisation units from DHIS2 (T1.1)
 export-ou:
-    ./venv/bin/python src/cleanup/phase1/export_org_units.py
+    PYTHONPATH=src uv run python src/cleanup/phase1/export_org_units.py
 
 # Update OU codes in the CSV file
 task1-update:
-    ./venv/bin/python src/cleanup/phase1/update_ou_codes.py
+    PYTHONPATH=src uv run python src/cleanup/phase1/update_ou_codes.py
 
 # Standardize org unit names (capitalize, fix center->centre)
 task1-standardize:
-    ./venv/bin/python src/cleanup/phase1/standardize_names.py
+    PYTHONPATH=src uv run python src/cleanup/phase1/standardize_names.py
 
 # Update OU codes with district codes from malawi_districts.csv
 update-ou-codes:
-    ./venv/bin/python src/cleanup/phase1/update_ou_codes.py
+    PYTHONPATH=src uv run python src/cleanup/phase1/update_ou_codes.py
 
 # Create OU code reference CSV (T1.2)
 create-ou-codes:
-    ./venv/bin/python src/cleanup/phase1/create_ou_codes.py
+    PYTHONPATH=src uv run python src/cleanup/phase1/create_ou_codes.py
 
 # Push OU codes to DHIS2 (dry-run, all org units)
 push-ou-codes-dry:
-    ./venv/bin/python src/cleanup/phase1/push_ou_codes.py --dry-run --all
+    PYTHONPATH=src uv run python src/cleanup/phase1/push_ou_codes.py --dry-run --all
 
 # Push OU codes to DHIS2 (PRODUCTION, all org units)
 push-ou-codes:
-    ./venv/bin/python src/cleanup/phase1/push_ou_codes.py --all
+    PYTHONPATH=src uv run python src/cleanup/phase1/push_ou_codes.py --all
 
 # Interactive push (pick scope → preview → push)
 phase1-push:
-    ./venv/bin/python src/cleanup/phase1/push_ou_codes.py
+    PYTHONPATH=src uv run python src/cleanup/phase1/push_ou_codes.py
 
 # Push OU codes for a single district (e.g. just phase1-district ZA)
 phase1-district district_code:
-    ./venv/bin/python src/cleanup/phase1/push_ou_codes.py --district {{district_code}}
+    PYTHONPATH=src uv run python src/cleanup/phase1/push_ou_codes.py --district {{district_code}}
 
 # Push OU codes for multiple districts (e.g. just phase1-districts "ZA,BL,MU")
 phase1-districts district_codes:
-    ./venv/bin/python src/cleanup/phase1/push_ou_codes.py --district {{district_codes}}
+    PYTHONPATH=src uv run python src/cleanup/phase1/push_ou_codes.py --district {{district_codes}}
 
 # Push OU codes for a single org unit by UID
 phase1-ou org_unit:
-    ./venv/bin/python src/cleanup/phase1/push_ou_codes.py --org-unit {{org_unit}}
+    PYTHONPATH=src uv run python src/cleanup/phase1/push_ou_codes.py --org-unit {{org_unit}}
 
 # Dry-run push for a single district
 phase1-district-dry district_code:
-    ./venv/bin/python src/cleanup/phase1/push_ou_codes.py --district {{district_code}} --dry-run
+    PYTHONPATH=src uv run python src/cleanup/phase1/push_ou_codes.py --district {{district_code}} --dry-run
 
 # Validate OU codes in DHIS2 against CSV
 validate-ou-codes:
-    ./venv/bin/python src/cleanup/phase1/push_ou_codes.py --validate
+    PYTHONPATH=src uv run python src/cleanup/phase1/push_ou_codes.py --validate
 
 # Run both T1.1 and T1.2
 task1: export-ou create-ou-codes
@@ -142,47 +163,47 @@ phase1-complete:
 
 # Interactive workflow (pick scope → generate → preview → apply)
 phase2:
-    ./venv/bin/python src/cleanup/phase2/phase2_workflow.py
+    PYTHONPATH=src uv run python src/cleanup/phase2/phase2_workflow.py
 
 # Process a single district by code (e.g. just phase2-district ZA)
 phase2-district district_code:
-    ./venv/bin/python src/cleanup/phase2/phase2_workflow.py --district {{district_code}}
+    PYTHONPATH=src uv run python src/cleanup/phase2/phase2_workflow.py --district {{district_code}}
 
 # Process multiple districts (e.g. just phase2-districts "ZA,BL,MU")
 phase2-districts district_codes:
-    ./venv/bin/python src/cleanup/phase2/phase2_workflow.py --district {{district_codes}}
+    PYTHONPATH=src uv run python src/cleanup/phase2/phase2_workflow.py --district {{district_codes}}
 
 # Process all org units
 phase2-all:
-    ./venv/bin/python src/cleanup/phase2/phase2_workflow.py --all
+    PYTHONPATH=src uv run python src/cleanup/phase2/phase2_workflow.py --all
 
 # Process a single org unit by UID
 phase2-ou org_unit:
-    ./venv/bin/python src/cleanup/phase2/phase2_workflow.py --org-unit {{org_unit}}
+    PYTHONPATH=src uv run python src/cleanup/phase2/phase2_workflow.py --org-unit {{org_unit}}
 
 # List all DHIS2 programs (read-only)
 phase2-list-programs:
-    ./venv/bin/python src/cleanup/phase2/list_programs.py
+    PYTHONPATH=src uv run python src/cleanup/phase2/list_programs.py
 
 # Fetch sample TEIs (interactive)
 phase2-fetch-samples:
-    ./venv/bin/python src/cleanup/phase2/fetch_sample_teis.py
+    PYTHONPATH=src uv run python src/cleanup/phase2/fetch_sample_teis.py
 
 # Apply interactively (pick CSV → pick method → apply)
 phase2-apply-interactive:
-    ./venv/bin/python src/cleanup/phase2/apply_ids.py --interactive
+    PYTHONPATH=src uv run python src/cleanup/phase2/apply_ids.py --interactive
 
 # Apply a previously generated mapping CSV (via API)
 phase2-apply csv_file:
-    ./venv/bin/python src/cleanup/phase2/apply_ids.py --csv {{csv_file}}
+    PYTHONPATH=src uv run python src/cleanup/phase2/apply_ids.py --csv {{csv_file}}
 
 # Apply a previously generated mapping CSV (via direct database)
 phase2-apply-db csv_file:
-    ./venv/bin/python src/cleanup/phase2/apply_ids.py --csv {{csv_file}} --use-db
+    PYTHONPATH=src uv run python src/cleanup/phase2/apply_ids.py --csv {{csv_file}} --use-db
 
 # Verify database values match expected CSV values
 phase2-verify csv_file:
-    ./venv/bin/python src/cleanup/phase2/apply_ids.py --csv {{csv_file}} --verify
+    PYTHONPATH=src uv run python src/cleanup/phase2/apply_ids.py --csv {{csv_file}} --verify
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # OU TRANSFER — Move TEIs between organisation units
@@ -190,23 +211,23 @@ phase2-verify csv_file:
 
 # Interactive transfer workflow (recommended)
 transfer:
-    PYTHONPATH=src ./venv/bin/python src/transfer/transfer_workflow.py
+    PYTHONPATH=src uv run python src/transfer/transfer_workflow.py
 
 # Show transferred TEIs from latest transfer (with names and details)
 verify:
-    PYTHONPATH=src ./venv/bin/python src/transfer/verify_at_destination.py
+    PYTHONPATH=src uv run python src/transfer/verify_at_destination.py
 
 # Comprehensive web UI verification (checks API, enrollments, TEI query, analytics)
 verify-web tei_uid ou_uid:
-    PYTHONPATH=src ./venv/bin/python src/transfer/verify_web_ui.py --tei {{tei_uid}} --ou {{ou_uid}}
+    PYTHONPATH=src uv run python src/transfer/verify_web_ui.py --tei {{tei_uid}} --ou {{ou_uid}}
 
 # Clear DHIS2 cache (fixes web UI not showing transferred TEIs)
 clear-cache:
-    PYTHONPATH=src ./venv/bin/python src/transfer/clear_dhis2_cache.py
+    PYTHONPATH=src uv run python src/transfer/clear_dhis2_cache.py
 
 # Re-run verification on last transfer
 transfer-verify:
-    PYTHONPATH=src ./venv/bin/python src/transfer/transfer_workflow.py --verify
+    PYTHONPATH=src uv run python src/transfer/transfer_workflow.py --verify
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # SYNC RESCUE — Import unsynced data from Android apps
@@ -214,27 +235,27 @@ transfer-verify:
 
 # Run batch import processing (place zips in imports/ first)
 sync-batch:
-    cd src/sync && ../../venv/bin/python cli.py batch
+    cd src/sync && PYTHONPATH=. uv run python cli.py batch
 
 # Extract data from a database
 sync-extract db:
-    cd src/sync && ../../venv/bin/python cli.py extract --db {{db}}
+    cd src/sync && PYTHONPATH=. uv run python cli.py extract --db {{db}}
 
 # Validate (dry-run) with credentials
 sync-validate username password:
-    cd src/sync && ../../venv/bin/python cli.py validate --username {{username}} --password {{password}}
+    cd src/sync && PYTHONPATH=. uv run python cli.py validate --username {{username}} --password {{password}}
 
 # Import data to DHIS2
 sync-import username password:
-    cd src/sync && ../../venv/bin/python cli.py import --username {{username}} --password {{password}}
+    cd src/sync && PYTHONPATH=. uv run python cli.py import --username {{username}} --password {{password}}
 
 # Verify imported data
 sync-verify username password:
-    cd src/sync && ../../venv/bin/python cli.py verify --username {{username}} --password {{password}}
+    cd src/sync && PYTHONPATH=. uv run python cli.py verify --username {{username}} --password {{password}}
 
 # Show ignored items from last import
 sync-show-ignored:
-    cd src/sync && ../../venv/bin/python -c "from utils import show_ignored_report; show_ignored_report()"
+    cd src/sync && PYTHONPATH=. uv run python -c "from utils import show_ignored_report; show_ignored_report()"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # FULL PIPELINE & UTILITIES
@@ -291,7 +312,7 @@ run-all:
     echo "  PHASE 2: TEI ID Standardisation"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
-    ./venv/bin/python src/cleanup/phase2/phase2_workflow.py
+    PYTHONPATH=src uv run python src/cleanup/phase2/phase2_workflow.py
 
     echo ""
 
@@ -336,11 +357,12 @@ clean:
     rm -rf outputs/phase2/*
     rm -rf outputs/transfer/*
     rm -rf outputs/sync/*
+    rm -rf build/ dist/
     @echo "✅ Cleaned generated files"
 
 # Remove virtual environment
 clean-venv:
-    rm -rf venv
+    rm -rf .venv
 
 # Clean all (including sync completed imports)
 clean-all: clean
@@ -350,16 +372,16 @@ clean-all: clean
 # Run basic tests
 test:
     @echo "── Testing Shared imports ──"
-    PYTHONPATH=src ./venv/bin/python -c "from shared.settings import DHIS2_URL; print(f'  ✅ Shared config OK (DHIS2_URL={DHIS2_URL})')"
-    PYTHONPATH=src ./venv/bin/python -c "from shared.dhis2_client import DHIS2_URL; print(f'  ✅ DHIS2 client OK (url={DHIS2_URL})')"
-    PYTHONPATH=src ./venv/bin/python -c "from shared.ou_picker import load_ou_codes; print('  ✅ OU picker OK')"
-    PYTHONPATH=src ./venv/bin/python -c "from shared.id_utils import PROGRAMS; print(f'  ✅ ID utils OK ({len(PROGRAMS)} programs)')"
+    PYTHONPATH=src uv run python -c "from shared.settings import DHIS2_URL; print(f'  ✅ Shared config OK (DHIS2_URL={DHIS2_URL})')"
+    PYTHONPATH=src uv run python -c "from shared.dhis2_client import DHIS2_URL; print(f'  ✅ DHIS2 client OK (url={DHIS2_URL})')"
+    PYTHONPATH=src uv run python -c "from shared.ou_picker import load_ou_codes; print('  ✅ OU picker OK')"
+    PYTHONPATH=src uv run python -c "from shared.id_utils import PROGRAMS; print(f'  ✅ ID utils OK ({len(PROGRAMS)} programs)')"
     @echo "── Testing Transfer imports ──"
-    PYTHONPATH=src ./venv/bin/python -c "from transfer.fetcher import fetch_teis_full; print('  ✅ Transfer fetcher OK')"
-    PYTHONPATH=src ./venv/bin/python -c "from transfer.engine import execute_transfer; print('  ✅ Transfer engine OK')"
-    PYTHONPATH=src ./venv/bin/python -c "from transfer.verifier import verify_transfer; print('  ✅ Transfer verifier OK')"
+    PYTHONPATH=src uv run python -c "from transfer.fetcher import fetch_teis_full; print('  ✅ Transfer fetcher OK')"
+    PYTHONPATH=src uv run python -c "from transfer.engine import execute_transfer; print('  ✅ Transfer engine OK')"
+    PYTHONPATH=src uv run python -c "from transfer.verifier import verify_transfer; print('  ✅ Transfer verifier OK')"
     @echo "── Testing Sync imports ──"
-    cd src/sync && ../../venv/bin/python -c "from config import Config; c = Config.from_env(); print(f'  ✅ Sync config OK (server={c.server})')"
+    cd src/sync && PYTHONPATH=. uv run python -c "from config import Config; c = Config.from_env(); print(f'  ✅ Sync config OK (server={c.server})')"
     @echo "✅ All imports successful"
 
 # Show available commands
@@ -369,9 +391,18 @@ help:
     @echo "╚══════════════════════════════════════════════════════════════════════╝"
     @echo ""
     @echo "Setup:"
-    @echo "  just init                            - Complete setup (install deps + venv)"
-    @echo "  just setup                           - Create venv and install Python packages"
+    @echo "  just init                            - Setup (uv sync — creates .venv automatically)"
+    @echo "  just setup                           - Same as init (uv sync)"
+    @echo "  just setup-build                     - Install build deps (pyinstaller + pillow)"
     @echo "  just test                            - Verify imports work"
+    @echo ""
+    @echo "Unified Entry Point:"
+    @echo "  just run                             - 🚀 Interactive menu (all 4 tools)"
+    @echo ""
+    @echo "Packaging (Windows .exe):"
+    @echo "  just icon                            - Generate cpmis.ico from cpmis.png (enlarged)"
+    @echo "  just build                            - Build standalone .exe with icon"
+    @echo "  just all                             - Setup + build in one go"
     @echo ""
     @echo "Cleanup — Phase 1 (Organisation Unit Codes):"
     @echo "  just phase1-complete                 - 🚀 COMPLETE Phase 1 workflow + live update"
