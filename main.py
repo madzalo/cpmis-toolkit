@@ -35,13 +35,13 @@ PHASE1_PIPELINE = [
 
 # Tool definitions: (key, label, description, script_path, cwd, env_extra, needs_ou_codes, args)
 TOOLS = [
-    ("1", "Cleanup Phase 1",  "Organisation unit codes & names",
+    ("1", "Standardise Org Units",  "Push codes & names to DHIS2",
      os.path.join("src", "cleanup", "phase1", "push_ou_codes.py"), None, {}, False, []),
-    ("2", "Cleanup Phase 2",  "TEI ID standardisation",
+    ("2", "Standardise TEI IDs",    "Generate & apply UIC IDs",
      os.path.join("src", "cleanup", "phase2", "phase2_workflow.py"), None, {}, True, []),
-    ("3", "OU Transfer",      "Move TEIs between org units",
+    ("3", "Transfer TEIs",          "Move between org units",
      os.path.join("src", "transfer", "transfer_workflow.py"), None, {"PYTHONPATH": "src"}, True, []),
-    ("4", "Sync Rescue",      "Import unsynced Android data",
+    ("4", "Sync Rescue",            "Import unsynced Android data",
      "cli.py", os.path.join("src", "sync"), {"PYTHONPATH": "."}, False, ["batch"]),
 ]
 
