@@ -119,9 +119,9 @@ Examples:
     
     # Batch command
     batch_parser = subparsers.add_parser("batch", help="Process batch imports")
-    batch_parser.add_argument("--imports-folder", default="imports", help="Folder with zip files")
-    batch_parser.add_argument("--completed-folder", default="completed_imports", help="Folder for completed zips")
-    batch_parser.add_argument("--work-dir", default="batch_processing", help="Working directory")
+    batch_parser.add_argument("--imports-folder", default=None, help="Folder with zip files")
+    batch_parser.add_argument("--completed-folder", default=None, help="Folder for completed zips")
+    batch_parser.add_argument("--work-dir", default=None, help="Working directory")
     batch_parser.set_defaults(func=cmd_batch)
     
     args = parser.parse_args()
