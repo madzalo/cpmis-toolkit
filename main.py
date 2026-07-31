@@ -33,20 +33,20 @@ PHASE1_PIPELINE = [
     (os.path.join("src", "cleanup", "phase1", "standardize_names.py"),  None, {}),
 ]
 
-# Tool definitions: (key, label, description, script_path, cwd, env_extra, needs_ou_codes)
+# Tool definitions: (key, label, description, script_path, cwd, env_extra, needs_ou_codes, args)
 TOOLS = [
     ("1", "Cleanup Phase 1",  "Organisation unit codes & names",
-     os.path.join("src", "cleanup", "phase1", "push_ou_codes.py"), None, {}, False),
+     os.path.join("src", "cleanup", "phase1", "push_ou_codes.py"), None, {}, False, []),
     ("2", "Cleanup Phase 2",  "TEI ID standardisation",
-     os.path.join("src", "cleanup", "phase2", "phase2_workflow.py"), None, {}, True),
+     os.path.join("src", "cleanup", "phase2", "phase2_workflow.py"), None, {}, True, []),
     ("3", "OU Transfer",      "Move TEIs between org units",
-     os.path.join("src", "transfer", "transfer_workflow.py"), None, {"PYTHONPATH": "src"}, True),
+     os.path.join("src", "transfer", "transfer_workflow.py"), None, {"PYTHONPATH": "src"}, True, []),
     ("4", "Sync Rescue",      "Import unsynced Android data",
-     "cli.py", os.path.join("src", "sync"), {}, False),
+     "cli.py", os.path.join("src", "sync"), {"PYTHONPATH": "."}, False, ["batch"]),
 ]
 
 
-def run_script(script_path, cwd, env_extra):
+def run_script(script_path, cwd, env_extra, args=None):
     """Run a script as a subprocess with the right environment."""
     env = os.environ.copy()
     if env_extra:
@@ -107,7 +107,7 @@ def main():
 
     while True:
         section("SELECT TOOL")
-        for key, label, desc, _, _, _, _ in TOOLS:
+        for key, label, desc, _, _, _, _, _ in TOOLS:
             menu_item(key, label, desc)
         blank()
         menu_item("q", "Quit")
@@ -119,7 +119,7 @@ def main():
         else:
             match = next((t for t in TOOLS if t[0] == choice), None)
             if match:
-                _, label, _, script, cwd, env_extra, needs_ou = match
+                _, label, _, script, cwd, env_extra, needs_ou, args = match
                 console.print(f"\n  [{_DIM}]Launching {label}...[/{_DIM}]\n")
 
                 if needs_ou:
@@ -129,7 +129,7 @@ def main():
                 env = os.environ.copy()
                 if env_extra:
                     env.update(env_extra)
-                subprocess.run([_PYTHON, script], cwd=cwd, env=env)
+                subprocess.run([_PYTHON, script] + args, cwd=cwd, env=env)
                 console.print()
             else:
                 warn("Enter 1, 2, 3, 4, or q.")
