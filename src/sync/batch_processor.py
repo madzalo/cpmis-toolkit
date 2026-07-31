@@ -186,7 +186,7 @@ class BatchProcessor:
                 orig_roles = []
 
             password = f"{surname.capitalize()}@2025"
-            print(f"found → {firstname} {surname}  |  password: {password}")
+            print(f"found → {firstname} {surname}")
             print()
 
             user_details.append({
@@ -210,8 +210,7 @@ class BatchProcessor:
         start_time = datetime.now()
         
         Logger.header(f"Processing: {zip_name}")
-        Logger.info(f"Username: {username}")
-        Logger.info(f"Password: {password}")
+        Logger.info(f"User: {firstname} {surname} [{username}]")
         
         # Create extraction directory
         extract_dir = os.path.join(
@@ -360,8 +359,7 @@ class BatchProcessor:
         Logger.header("Processing Summary")
         for ud in user_details:
             print(f"  📦 {ud['zip_name']}")
-            print(f"     👤 {ud['firstname']} {ud['surname']}")
-            print(f"     🔑 {ud['username']} / {ud['password']}")
+            print(f"     👤 {ud['firstname']} {ud['surname']}  [{ud['username']}]")
             print()
         
         input("Press ENTER to start processing...")
