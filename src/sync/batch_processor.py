@@ -188,12 +188,12 @@ class BatchProcessor:
             duration=duration
         )
     
-    def move_completed_zip(self, zip_path: str):
-        """Move completed zip to completed folder."""
+    def copy_completed_zip(self, zip_path: str):
+        """Copy completed zip to completed folder (original stays in imports/)."""
         os.makedirs(self.config.completed_folder, exist_ok=True)
         dest = os.path.join(self.config.completed_folder, os.path.basename(zip_path))
-        shutil.move(zip_path, dest)
-        Logger.info(f"Moved completed zip to: {dest}")
+        shutil.copy2(zip_path, dest)
+        Logger.info(f"Copied completed zip to: {dest}")
     
     def process_all(self, folder: Optional[str] = None, 
                     completed_folder: Optional[str] = None) -> BatchProcessingResult:
@@ -244,7 +244,7 @@ class BatchProcessor:
             
             if result.success:
                 Logger.success(f"Completed in {format_duration(result.duration)}")
-                self.move_completed_zip(ud['zip_path'])
+                self.copy_completed_zip(ud['zip_path'])
             else:
                 Logger.error(f"Failed: {result.error}")
         
