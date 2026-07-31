@@ -74,37 +74,99 @@ def strip_prefix(name):
     return name
 
 
-def name_to_short_code(name):
+def name_to_short_code(name, parent_name=None):
     """
-    Extract a short code (4 letters + optional numbers) from a name.
-    
+    Extract a short code (4 letters + optional numbers/suffix) from a name.
+
     Hierarchical code structure:
       L3 District:  XX                        e.g. ZA
       L4 TA:        XX_YYYY                   e.g. ZA_CHIK
       L5 Facility:  XX_YYYY_ZZZZ              e.g. ZA_CHIK_LAMB
-    
+
+    If parent_name is provided (for L5 facilities), common words shared with
+    the parent are stripped so the facility code is distinctive.
+
     Examples:
-    - "TA Chauma"               -> "CHAU"     (TA prefix stripped)
-    - "STA Nkagula"             -> "NKAG"     (STA prefix stripped)
-    - "Sub TA Phweremwe"        -> "PHWE"     (Sub TA prefix stripped)
-    - "Lambulira"               -> "LAMB"     (first 4 letters)
-    - "Area 18 Health Centre"   -> "AREA18"   (letters + number)
-    - "Magomero Health Centre"  -> "MAGO"     (first 4 letters)
+    - "TA Chauma"                          -> "CHAU"
+    - "STA Nkagula"                        -> "NKAG"
+    - "Sub TA Phweremwe"                   -> "PHWE"
+    - "Lambulira"                          -> "LAMB"
+    - "Area 18"                            -> "AREA18"
+    - "Area 18 Health Centre" (parent="Area 18")  -> "HC18"   (strips "Area", keeps "Health Centre" → HC)
+    - "Area 25 Community Hospital" (parent="Area 25") -> "CH25"
+    - "Magomero Health Centre"             -> "MAGO"
+    - "Chikowa Health Centre (Lilongwe)"   -> "CHIK"   (strips parenthetical)
+    - "Chamba (Machinga)"                  -> "CHAM"
+    - "Mchengautuwa East Ward"             -> "MCHE"
     """
-    clean = strip_prefix(name)
-    
-    # Remove non-alphanumeric characters
-    alphanumeric = re.sub(r'[^A-Za-z0-9]', '', clean)
-    
-    # Extract first 4 letters
-    letters = re.sub(r'[^A-Za-z]', '', alphanumeric)[:4].upper()
-    
-    # Extract numbers from original name
-    numbers = re.findall(r'\d+', name)
-    
-    if numbers:
-        return f"{letters}{numbers[0]}"
-    return letters
+    # Strip parenthetical disambiguation — (Lilongwe), (Machinga), (Zomba), etc.
+    clean_name = re.sub(r'\s*\([^)]*\)\s*', ' ', name).strip()
+
+    # For L5 facilities: if the parent TA name is embedded in the facility name,
+    # strip it so the facility code is distinctive.
+    if parent_name:
+        parent_clean = strip_prefix(parent_name).strip()
+        # Remove the parent name from the facility name (case-insensitive)
+        clean_name = re.sub(re.escape(parent_clean), '', clean_name, flags=re.IGNORECASE).strip()
+        # Also try removing just the parent's "Area N" pattern
+        clean_name = re.sub(r'Area\s*\d+', '', clean_name, flags=re.IGNORECASE).strip()
+
+    # Strip TA/STA/Sub TA prefix
+    clean = strip_prefix(clean_name)
+
+    # Strip common facility type words to get the distinctive part
+    facility_type_words = [
+        'Health Centre', 'Health Center', 'Community Hospital', 'Rural Hospital',
+        'District Hospital', 'Central Hospital', 'Mission Hospital',
+        'Hospital', 'Clinic', 'Dispensary', 'Maternity',
+        'Urban Health Centre', 'Urban Health Center',
+        'Game Reserve', 'National Park', 'Mountain Reserve',
+        'Boma', 'Town', 'Ward', 'Factory',
+    ]
+
+    facility_type_code = None
+    for ft in facility_type_words:
+        if re.search(re.escape(ft), clean, re.IGNORECASE):
+            # Generate a type abbreviation
+            ft_words = ft.split()
+            if len(ft_words) >= 2:
+                facility_type_code = ''.join(w[0] for w in ft_words if w).upper()
+            else:
+                facility_type_code = ft[:2].upper()
+            # Remove the type words from the name
+            clean = re.sub(re.escape(ft), '', clean, flags=re.IGNORECASE).strip()
+            break
+
+    # Extract numbers (including letter suffixes like 18A, 18B)
+    number_match = re.search(r'(\d+[A-Z]?)', clean, re.IGNORECASE)
+    number_part = number_match.group(1).upper() if number_match else ''
+
+    # Extract letters from what remains after stripping type words
+    letters = re.sub(r'[^A-Za-z]', '', clean)[:4].upper()
+
+    # Build the code
+    if letters and number_part:
+        # e.g., "Area 18 Health Centre" (parent="Area 18") → letters="" number="18" type="HC" → "HC18"
+        if facility_type_code and not letters:
+            return f"{facility_type_code}{number_part}"
+        elif facility_type_code:
+            return f"{letters}{number_part}"
+        else:
+            return f"{letters}{number_part}"
+    elif number_part and not letters:
+        if facility_type_code:
+            return f"{facility_type_code}{number_part}"
+        return f"AREA{number_part}"  # fallback for pure "Area 18"
+    elif letters:
+        if facility_type_code and len(letters) < 4:
+            # Pad with type code, e.g., "Chiringa CHAM" → "CHIR" (already 4), but "Chiringa Maternity" → "CHIR"
+            return letters
+        return letters
+    elif facility_type_code:
+        return facility_type_code
+    else:
+        # Fallback: first 4 letters of original name
+        return re.sub(r'[^A-Za-z0-9]', '', name)[:4].upper()
 
 
 def make_code_unique(base_code, used_codes):
@@ -216,7 +278,8 @@ def update_standardised_codes():
         parent = ou.get('parent', {})
         parent_id = parent.get('id')
         parent_code = uid_to_code.get(parent_id)
-        
+        parent_name = parent.get('name', '') if parent else ''
+
         if not parent_code:
             # Fallback: use district code directly if parent TA has no code
             district_code = get_district_code_from_parent_chain(ou_id, ou_map, district_map)
@@ -224,8 +287,8 @@ def update_standardised_codes():
                 not_updated.append({'uid': ou_id, 'name': row['ou_name'], 'level': '5'})
                 continue
             parent_code = district_code
-        
-        short = name_to_short_code(row['ou_name'])
+
+        short = name_to_short_code(row['ou_name'], parent_name=parent_name)
         base_code = f"{parent_code}_{short}"
         unique = make_code_unique(base_code, used_codes)
         row['standardised_code'] = unique
