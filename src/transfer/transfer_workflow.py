@@ -42,6 +42,46 @@ from transfer.verifier import verify_transfer
 OUTPUT_DIR = 'outputs/transfer'
 
 
+def save_fetched_tei_snapshot(household_teis, child_teis, hh_to_children, child_to_hh):
+    """Save fetched TEIs to JSON for offline searching."""
+    import json
+    from shared.id_utils import PROGRAMS, extract_current_id, get_tei_display_name
+
+    snapshot = {
+        'households': [],
+        'children': [],
+        'relationships': []
+    }
+
+    hh_attr = PROGRAMS['household']['id_attribute']
+    child_attr = PROGRAMS['harmonized']['id_attribute']
+
+    for tei in household_teis:
+        snapshot['households'].append({
+            'uid': tei['trackedEntityInstance'],
+            'name': get_tei_display_name(tei, 'household'),
+            'id': extract_current_id(tei, hh_attr) or '',
+            'ou': tei.get('orgUnit', ''),
+            'children_uids': list(hh_to_children.get(tei['trackedEntityInstance'], set()))
+        })
+
+    for tei in child_teis:
+        snapshot['children'].append({
+            'uid': tei['trackedEntityInstance'],
+            'name': get_tei_display_name(tei, 'harmonized'),
+            'id': extract_current_id(tei, child_attr) or '',
+            'ou': tei.get('orgUnit', ''),
+            'household_uid': child_to_hh.get(tei['trackedEntityInstance'], '')
+        })
+
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    snapshot_file = os.path.join(OUTPUT_DIR, 'fetched_tei_snapshot.json')
+    with open(snapshot_file, 'w') as f:
+        json.dump(snapshot, f, indent=2)
+    console.print(f"  💾 Snapshot saved: [dim]{snapshot_file}[/dim]")
+    return snapshot_file
+
+
 def interactive_year_range():
     """Prompt the user for an enrollment year range."""
     section("Enrollment Year Range")
@@ -134,6 +174,9 @@ def run_interactive():
     hh_to_children, child_to_hh = build_relationship_graph(household_teis, child_teis)
     linked_count = sum(len(v) for v in hh_to_children.values())
     console.print(f" ✅ {linked_count} household-child links found")
+
+    # Save snapshot for offline searching
+    save_fetched_tei_snapshot(household_teis, child_teis, hh_to_children, child_to_hh)
 
     # ── Step 7: Display summary ──
     display_tei_summary(household_teis, child_teis, hh_to_children, child_to_hh)
