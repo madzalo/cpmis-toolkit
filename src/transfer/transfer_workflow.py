@@ -196,7 +196,7 @@ def run_interactive():
     section("Step 5 — Select TEIs to Keep at Source")
 
     all_teis = household_teis + child_teis
-    keep_uids = interactive_select_keep(household_teis, child_teis, hh_to_children, child_to_hh)
+    keep_uids, transfer_mode = interactive_select_keep(household_teis, child_teis, hh_to_children, child_to_hh)
 
     if keep_uids is None:
         err("Cancelled.")
@@ -204,7 +204,7 @@ def run_interactive():
 
     # Resolve full transfer set with relationship preservation
     keep_set, transfer_set = resolve_transfer_set(
-        keep_uids, all_teis, hh_to_children, child_to_hh
+        keep_uids, all_teis, hh_to_children, child_to_hh, transfer_mode=transfer_mode
     )
 
     transfer_teis = [t for t in all_teis if t['trackedEntityInstance'] in transfer_set]

@@ -277,22 +277,31 @@ def build_relationship_graph(household_teis, child_teis):
     return hh_to_children, child_to_hh
 
 
-def resolve_transfer_set(keep_uids, all_teis, hh_to_children, child_to_hh):
+def resolve_transfer_set(keep_uids, all_teis, hh_to_children, child_to_hh, transfer_mode=False):
     """
     Given TEIs the user wants to KEEP at source, determine the full
     transfer set — ensuring household-child relationships stay intact.
 
     Args:
-        keep_uids: set of TEI UIDs the user wants to keep
+        keep_uids: set of TEI UIDs the user wants to keep (or transfer if transfer_mode=True)
         all_teis: list of all TEI dicts
         hh_to_children: dict hh_uid -> set(child_uids)
         child_to_hh: dict child_uid -> hh_uid
+        transfer_mode: if True, keep_uids actually means "transfer these" instead of "keep these"
 
     Returns:
         (keep_set, transfer_set) — both sets of UIDs
     """
     all_uids = {t['trackedEntityInstance'] for t in all_teis}
-    keep_set = set(keep_uids)
+
+    if transfer_mode:
+        # keep_uids actually means "transfer these"
+        transfer_set = set(keep_uids)
+        keep_set = all_uids - transfer_set
+    else:
+        # keep_uids means "keep these"
+        keep_set = set(keep_uids)
+        transfer_set = all_uids - keep_set
 
     # Expand keep_set to preserve relationships:
     # If a child is kept, keep its household
@@ -314,6 +323,7 @@ def resolve_transfer_set(keep_uids, all_teis, hh_to_children, child_to_hh):
                         keep_set.add(child)
                         expanded = True
 
+    # Recalculate transfer_set after keep_set expansion
     transfer_set = all_uids - keep_set
 
     # Expand transfer_set to preserve relationships for transferred TEIs:
