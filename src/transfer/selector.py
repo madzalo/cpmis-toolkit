@@ -35,7 +35,10 @@ def display_tei_summary(household_teis, child_teis, hh_to_children, child_to_hh)
     for t in household_teis + child_teis:
         tei_map[t['trackedEntityInstance']] = t
 
-    for i, hh_tei in enumerate(household_teis, 1):
+    # Sort households alphabetically by display name
+    sorted_households = sorted(household_teis, key=lambda t: get_tei_display_name(t, 'household'))
+
+    for i, hh_tei in enumerate(sorted_households, 1):
         hh_uid = hh_tei['trackedEntityInstance']
         hh_id = extract_current_id(hh_tei, hh_attr) or '(no ID)'
         hh_name = get_tei_display_name(hh_tei, 'household')
@@ -50,11 +53,11 @@ def display_tei_summary(household_teis, child_teis, hh_to_children, child_to_hh)
         else:
             print(f"         └─ (no linked children)")
 
-    # Show orphaned children
-    orphaned_children = [
-        t for t in child_teis
-        if t['trackedEntityInstance'] not in child_to_hh
-    ]
+    # Show orphaned children (sorted alphabetically)
+    orphaned_children = sorted(
+        [t for t in child_teis if t['trackedEntityInstance'] not in child_to_hh],
+        key=lambda t: get_tei_display_name(t, 'harmonized')
+    )
     if orphaned_children:
         print(f"\n  {'─' * 70}")
         print(f"  UNLINKED CHILDREN (no household relationship)")
@@ -113,10 +116,19 @@ def interactive_select_keep(household_teis, child_teis, hh_to_children, child_to
     print(f"  Linked households/children are automatically handled.")
     print(f"  Enter 'none' to {mode_label} nothing, or 'cancel' to abort.\n")
 
-    # Build numbered list
+    # Build numbered list (sorted alphabetically by display name)
     hh_uid_set = {t['trackedEntityInstance'] for t in household_teis}
+
+    def _sort_key(tei):
+        uid = tei['trackedEntityInstance']
+        if uid in hh_uid_set:
+            return get_tei_display_name(tei, 'household')
+        else:
+            return get_tei_display_name(tei, 'harmonized')
+
+    sorted_teis = sorted(all_teis, key=_sort_key)
     numbered = []
-    for i, tei in enumerate(all_teis, 1):
+    for i, tei in enumerate(sorted_teis, 1):
         uid = tei['trackedEntityInstance']
         if uid in hh_uid_set:
             tei_type = 'HH'
