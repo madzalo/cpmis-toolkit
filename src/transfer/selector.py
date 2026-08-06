@@ -6,6 +6,7 @@ import csv
 import os
 
 from shared.id_utils import PROGRAMS, extract_current_id, get_tei_display_name
+from shared.ui import console, section, ok, warn, err, ask
 
 
 def display_tei_summary(household_teis, child_teis, hh_to_children, child_to_hh):
@@ -96,10 +97,10 @@ def interactive_select_keep(household_teis, child_teis, hh_to_children, child_to
     print(f"  {'═' * 70}")
 
     while True:
-        mode = input("  Choose mode (1 or 2) [1]: ").strip() or '1'
+        mode = ask("Choose mode (1 or 2) [1]").strip() or '1'
         if mode in ('1', '2'):
             break
-        print("  ⚠️  Enter 1 or 2.")
+        warn("Enter 1 or 2.")
 
     select_to_transfer = (mode == '2')
     mode_label = "TRANSFER" if select_to_transfer else "KEEP"
@@ -142,17 +143,17 @@ def interactive_select_keep(household_teis, child_teis, hh_to_children, child_to
         print(f"    {i:3d}. [{tei_type}] {tei_name:<25} {tei_id or '(no ID)':<30} ({uid})")
 
     while True:
-        choice = input(f"\n  TEIs to {mode_label} (e.g., 1,3,5 or 'none' or 'cancel'): ").strip()
+        choice = ask(f"TEIs to {mode_label} (e.g., 1,3,5 or 'none' or 'cancel')").strip()
 
         if choice.lower() == 'cancel':
             return None
 
         if choice.lower() == 'none':
             if select_to_transfer:
-                print(f"  ℹ️  No TEIs selected to transfer — ALL {total} will STAY at source.")
+                console.print(f"  [dim]No TEIs selected to transfer — ALL {total} will STAY at source.[/dim]")
             else:
-                print(f"  ℹ️  No TEIs selected to keep — ALL {total} will be TRANSFERRED.")
-            confirm = input("  Confirm? (yes/no): ").strip().lower()
+                console.print(f"  [dim]No TEIs selected to keep — ALL {total} will be TRANSFERRED.[/dim]")
+            confirm = ask("Confirm? (yes/no)").strip().lower()
             if confirm in ('yes', 'y'):
                 if select_to_transfer:
                     return set(t['trackedEntityInstance'] for t in all_teis)  # Keep all
