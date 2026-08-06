@@ -79,9 +79,7 @@ def interactive_select_keep(household_teis, child_teis, hh_to_children, child_to
       2. Select TEIs to TRANSFER (everything else stays)
 
     Returns:
-        (keep_uids, transfer_mode) where:
-            keep_uids: set of TEI UIDs to keep at source (None = cancel)
-            transfer_mode: bool, True if user selected "to transfer", False if "to keep"
+        keep_uids: set of TEI UIDs to keep at source (None = cancel)
     """
     hh_attr = PROGRAMS['household']['id_attribute']
     child_attr = PROGRAMS['harmonized']['id_attribute']
@@ -149,7 +147,7 @@ def interactive_select_keep(household_teis, child_teis, hh_to_children, child_to
         choice = ask(f"TEIs to {mode_label} (e.g., 1,3,5 or 'none' or 'cancel')").strip()
 
         if choice.lower() == 'cancel':
-            return None, False
+            return None
 
         if choice.lower() == 'none':
             if select_to_transfer:
@@ -159,9 +157,9 @@ def interactive_select_keep(household_teis, child_teis, hh_to_children, child_to
             confirm = ask("Confirm? (yes/no)").strip().lower()
             if confirm in ('yes', 'y'):
                 if select_to_transfer:
-                    return set(t['trackedEntityInstance'] for t in all_teis), True  # Keep all
+                    return set(t['trackedEntityInstance'] for t in all_teis)  # Keep all
                 else:
-                    return set(), False  # Transfer all
+                    return set()  # Transfer all
             continue
 
         try:
@@ -175,12 +173,12 @@ def interactive_select_keep(household_teis, child_teis, hh_to_children, child_to
                     keep_uids = {t['trackedEntityInstance'] for t in all_teis} - selected_uids
                     ok(f"Transferring: {', '.join(selected_labels)}")
                     ok(f"Keeping {len(keep_uids)} others at source")
-                    return keep_uids, True
+                    return keep_uids
                 else:
                     # In keep mode: selected = keep, transfer = all - selected
                     keep_uids = selected_uids
                     ok(f"Keeping: {', '.join(selected_labels)}")
-                    return keep_uids, False
+                    return keep_uids
             else:
                 warn(f"Numbers must be between 1 and {total}.")
         except ValueError:
