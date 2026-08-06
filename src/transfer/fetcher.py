@@ -181,6 +181,66 @@ def fetch_relationships_for_tei(tei_uid):
     return []
 
 
+def fetch_households_for_children(child_teis):
+    """
+    Fetch households for given children even if they have no enrollments.
+    This ensures households can be transferred with their children.
+
+    Args:
+        child_teis: list of child TEI dicts
+
+    Returns:
+        list of household TEI dicts
+    """
+    # Get unique household UIDs from child relationships
+    hh_uids_to_fetch = set()
+    for child in child_teis:
+        for rel in child.get('relationships', []):
+            from_uid = (rel.get('from', {})
+                        .get('trackedEntityInstance', {})
+                        .get('trackedEntityInstance', ''))
+            to_uid = (rel.get('to', {})
+                        .get('trackedEntityInstance', {})
+                        .get('trackedEntityInstance', ''))
+            # Assume household is the one that's not the child itself
+            if from_uid and from_uid != child['trackedEntityInstance']:
+                hh_uids_to_fetch.add(from_uid)
+            if to_uid and to_uid != child['trackedEntityInstance']:
+                hh_uids_to_fetch.add(to_uid)
+
+    if not hh_uids_to_fetch:
+        return []
+
+    print(f"  📡 Fetching {len(hh_uids_to_fetch)} households for children (no year filter)...")
+
+    household_program_id = PROGRAMS['household']['id']
+    households = []
+
+    for i, hh_uid in enumerate(hh_uids_to_fetch, 1):
+        print(f"\r  📡 Fetching household [{i}/{len(hh_uids_to_fetch)}]".ljust(80), end='', flush=True)
+
+        hh_data = api_get(f'/api/trackedEntityInstances/{hh_uid}.json', params={
+            'program': household_program_id,
+            'fields': (
+                'trackedEntityInstance,trackedEntityType,orgUnit,created,createdBy,'
+                'attributes[attribute,displayName,value,created,lastUpdated],'
+                'enrollments[enrollment,program,orgUnit,enrollmentDate,incidentDate,'
+                'status,created,createdBy,'
+                'events[event,program,programStage,orgUnit,eventDate,dueDate,'
+                'status,created,createdBy,'
+                'dataValues[dataElement,value,created,lastUpdated,storedBy]]],'
+                'relationships[relationship,relationshipType,from[trackedEntityInstance[trackedEntityInstance]],'
+                'to[trackedEntityInstance[trackedEntityInstance]]]'
+            )
+        })
+
+        if hh_data:
+            households.append(hh_data)
+
+    print(f"\r  ✅ Fetched {len(households)} households".ljust(80))
+    return households
+
+
 def build_relationship_graph(household_teis, child_teis):
     """
     Build a mapping of household ↔ child relationships.

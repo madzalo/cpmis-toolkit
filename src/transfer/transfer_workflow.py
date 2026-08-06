@@ -29,7 +29,10 @@ from shared.ou_picker import load_ou_codes, search_and_pick_ou
 from shared.id_utils import PROGRAMS
 
 from transfer.fetcher import (
-    fetch_teis_full, build_relationship_graph, resolve_transfer_set
+    fetch_teis_full,
+    fetch_households_for_children,
+    build_relationship_graph,
+    resolve_transfer_set
 )
 from transfer.selector import (
     display_tei_summary, interactive_select_keep, save_transfer_preview
@@ -169,6 +172,15 @@ def run_interactive():
     if not household_teis and not child_teis:
         warn(f"No TEIs found at {source_name} for {year_start}-{year_end}. Nothing to transfer.")
         sys.exit(0)
+
+    # Fetch households for children (even if no enrollments in year range)
+    if child_teis:
+        additional_households = fetch_households_for_children(child_teis)
+        # Merge, avoiding duplicates
+        existing_hh_uids = {h['trackedEntityInstance'] for h in household_teis}
+        for hh in additional_households:
+            if hh['trackedEntityInstance'] not in existing_hh_uids:
+                household_teis.append(hh)
 
     console.print("  🔗 Building relationship graph...", end="", highlight=False)
     hh_to_children, child_to_hh = build_relationship_graph(household_teis, child_teis)
