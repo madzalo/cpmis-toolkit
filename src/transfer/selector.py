@@ -79,7 +79,10 @@ def interactive_select_keep(household_teis, child_teis, hh_to_children, child_to
       2. Select TEIs to TRANSFER (everything else stays)
 
     Returns:
-        keep_uids: set of TEI UIDs to keep at source (None = cancel)
+        (selected_uids, transfer_mode): tuple of selected UIDs and mode flag
+        - transfer_mode=False: selected_uids are TEIs to KEEP
+        - transfer_mode=True: selected_uids are TEIs to TRANSFER
+        Returns (None, None) if cancelled
     """
     hh_attr = PROGRAMS['household']['id_attribute']
     child_attr = PROGRAMS['harmonized']['id_attribute']
@@ -147,7 +150,7 @@ def interactive_select_keep(household_teis, child_teis, hh_to_children, child_to
         choice = ask(f"TEIs to {mode_label} (e.g., 1,3,5 or 'none' or 'cancel')").strip()
 
         if choice.lower() == 'cancel':
-            return None
+            return None, None
 
         if choice.lower() == 'none':
             if select_to_transfer:
@@ -157,9 +160,9 @@ def interactive_select_keep(household_teis, child_teis, hh_to_children, child_to
             confirm = ask("Confirm? (yes/no)").strip().lower()
             if confirm in ('yes', 'y'):
                 if select_to_transfer:
-                    return set(t['trackedEntityInstance'] for t in all_teis)  # Keep all
+                    return set(t['trackedEntityInstance'] for t in all_teis), True  # Transfer all
                 else:
-                    return set()  # Transfer all
+                    return set(), False  # Transfer all (keep none)
             continue
 
         try:
@@ -169,16 +172,13 @@ def interactive_select_keep(household_teis, child_teis, hh_to_children, child_to
                 selected_labels = [f"{numbered[n-1][2]}:{numbered[n-1][4]} ({numbered[n-1][3]})" for n in indices]
 
                 if select_to_transfer:
-                    # In transfer mode: selected = transfer, so keep = all - selected
-                    keep_uids = {t['trackedEntityInstance'] for t in all_teis} - selected_uids
+                    # In transfer mode: selected = transfer
                     ok(f"Transferring: {', '.join(selected_labels)}")
-                    ok(f"Keeping {len(keep_uids)} others at source")
-                    return keep_uids
+                    return selected_uids, True
                 else:
-                    # In keep mode: selected = keep, transfer = all - selected
-                    keep_uids = selected_uids
+                    # In keep mode: selected = keep
                     ok(f"Keeping: {', '.join(selected_labels)}")
-                    return keep_uids
+                    return selected_uids, False
             else:
                 warn(f"Numbers must be between 1 and {total}.")
         except ValueError:
