@@ -74,6 +74,22 @@ def extract_nested_zips(extract_dir: str, password: Optional[str] = None):
                 nested_zip = os.path.join(root, file)
                 Logger.info(f"Found nested zip: {file}, extracting...")
                 try:
+                    # Try py7zr first for LZMA compression (compress_type=99)
+                    try:
+                        import py7zr
+                        if password:
+                            py7zr.SevenZipFile(nested_zip, password=password).extractall(root)
+                        else:
+                            py7zr.SevenZipFile(nested_zip).extractall(root)
+                        Logger.success(f"Extracted nested zip: {file}")
+                        os.remove(nested_zip)
+                        continue
+                    except ImportError:
+                        pass
+                    except Exception:
+                        pass
+
+                    # Fallback to zipfile
                     with zipfile.ZipFile(nested_zip, 'r') as zf:
                         if password:
                             try:
