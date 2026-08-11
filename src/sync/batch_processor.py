@@ -187,6 +187,8 @@ class BatchProcessor:
 
             password = f"{surname.capitalize()}@2025"
             print(f"found → {firstname} {surname}")
+            print(f"    Auto-generated password: {password}")
+            print(f"    Note: If nested zip is encrypted, you'll need the actual DHIS2 password")
             print()
 
             user_details.append({

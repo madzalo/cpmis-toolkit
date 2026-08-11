@@ -79,7 +79,17 @@ def extract_nested_zips(extract_dir: str, password: Optional[str] = None):
                             try:
                                 zf.extractall(root, pwd=password.encode())
                             except RuntimeError:
-                                zf.extractall(root)
+                                # Try without password
+                                try:
+                                    zf.extractall(root)
+                                except RuntimeError:
+                                    # Prompt for actual DHIS2 password
+                                    Logger.warning(f"Auto-generated password failed for encrypted zip")
+                                    actual_password = input(f"    Enter actual DHIS2 password for {file}: ").strip()
+                                    if actual_password:
+                                        zf.extractall(root, pwd=actual_password.encode())
+                                    else:
+                                        raise RuntimeError("No password provided")
                         else:
                             zf.extractall(root)
                     Logger.success(f"Extracted nested zip: {file}")
