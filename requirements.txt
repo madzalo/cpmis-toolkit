@@ -4,3 +4,4 @@ psycopg2-binary==2.9.9
 aiohttp==3.9.5
 rich==13.7.1
 Pillow==10.2.0
+py7zr==0.20.8

@@ -39,6 +39,7 @@ icon:
 
 # Build a standalone .exe using PyInstaller (with icon)
 build: icon
+    rm -rf build/ dist/
     uv run pyinstaller cpmis_toolkit.spec --noconfirm
     @echo "Build complete! Check the dist/ folder for 'CPMIS Toolkit v<version>.exe'"
 
