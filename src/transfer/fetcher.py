@@ -299,6 +299,26 @@ def resolve_transfer_set(keep_uids, all_teis, hh_to_children, child_to_hh, trans
         # keep_uids actually contains TEIs to TRANSFER
         transfer_set = set(keep_uids)
         keep_set = all_uids - transfer_set
+
+        # In transfer mode, expand transfer_set FIRST to ensure relationships are moved
+        # If a child is being transferred, ensure its household is too
+        # If a household is being transferred, ensure its children are too
+        expanded = True
+        while expanded:
+            expanded = False
+            for uid in list(transfer_set):
+                if uid in child_to_hh:
+                    hh = child_to_hh[uid]
+                    if hh in all_uids and hh not in transfer_set:
+                        transfer_set.add(hh)
+                        keep_set.discard(hh)
+                        expanded = True
+                if uid in hh_to_children:
+                    for child in hh_to_children[uid]:
+                        if child in all_uids and child not in transfer_set:
+                            transfer_set.add(child)
+                            keep_set.discard(child)
+                            expanded = True
     else:
         # keep_uids contains TEIs to KEEP
         keep_set = set(keep_uids)
@@ -327,8 +347,7 @@ def resolve_transfer_set(keep_uids, all_teis, hh_to_children, child_to_hh, trans
                         expanded = True
 
     # Expand transfer_set to preserve relationships for transferred TEIs:
-    # If a child is being transferred, ensure its household is too (if not kept)
-    # If a household is being transferred, ensure its children are too (if not kept)
+    # This runs for both modes to catch any remaining relationships
     expanded = True
     while expanded:
         expanded = False
