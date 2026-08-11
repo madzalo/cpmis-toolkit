@@ -50,13 +50,9 @@ def verify_transfer(transfer_teis, id_mappings, dest_ou_uid, hh_to_children, chi
         for ev in [enr.get('events', [])]
     )
 
-    print(f"\n  {'═' * 70}")
-    print(f"  VERIFYING TRANSFER")
-    print(f"  {'═' * 70}")
-    print(f"  TEIs to verify:    {total}")
-    print(f"  Expected events:   {expected_events_total}")
-    print(f"  Destination:       {dest_ou_uid}")
-    print(f"  {'═' * 70}\n")
+    print(f"\n  [dim]{'─' * 70}[/dim]")
+    print(f"  [bold]Verifying {total} TEIs[/bold] ({expected_events_total} events)")
+    print(f"  [dim]{'─' * 70}[/dim]\n")
 
     start_time = time.time()
 
@@ -185,35 +181,26 @@ def verify_transfer(transfer_teis, id_mappings, dest_ou_uid, hh_to_children, chi
     elapsed = time.time() - start_time
 
     # Summary
-    print(f"\n  {'═' * 70}")
-    print(f"  VERIFICATION RESULTS")
-    print(f"  {'═' * 70}")
-    print(f"  Total TEIs:        {total}")
-    print(f"  Found on server:   {verified}")
-    print(f"  Not found:         {not_found}")
-    print(f"  OU correct:        {ou_ok}")
-    print(f"  OU incorrect:      {ou_fail}")
-    print(f"  ID correct:        {id_ok}")
-    print(f"  ID incorrect:      {id_fail}")
-    print(f"  Events OK:         {events_ok}")
-    print(f"  Events issues:     {events_fail}")
-    print(f"  Relationships OK:  {relationship_ok} (informational only)")
-    print(f"  Relationships missing: {relationship_fail} (not critical)")
-    print(f"  Time:              {elapsed:.1f}s")
-    print(f"  {'═' * 70}")
+    print(f"\n  [dim]{'─' * 70}[/dim]")
+    print(f"  [bold green]✓ Verification complete[/bold green]")
+    print(f"  [dim]{'─' * 70}[/dim]")
+    print(f"  ✅ {verified} found  ❌ {not_found} missing  ⏱️  {elapsed:.1f}s")
+    if id_fail > 0 or ou_fail > 0:
+        print(f"  ⚠️  ID issues: {id_fail}  OU issues: {ou_fail}")
+    print(f"  [dim]{'─' * 70}[/dim]\n")
 
     if errors:
-        print(f"\n  Critical Issues (first 20):")
-        for err in errors[:20]:
+        print(f"  Critical Issues (first 10):")
+        for err in errors[:10]:
             print(f"    ⚠️  {err}")
-        if len(errors) > 20:
-            print(f"    ... and {len(errors) - 20} more")
-    else:
-        print(f"\n  ✅ All {total} TEIs verified successfully!")
-    
+        if len(errors) > 10:
+            print(f"    ... and {len(errors) - 10} more")
+        print()
+    elif not_found == 0:
+        print(f"  [bold green]All {total} TEIs verified successfully![/bold green]\n")
+
     if relationship_fail > 0:
-        print(f"\n  ℹ️  Note: {relationship_fail} TEIs have missing relationships.")
-        print(f"     This is not critical - TEIs were transferred successfully.")
+        print(f"  ℹ️  {relationship_fail} TEIs have missing relationships (not critical)\n")
 
     return {
         'total': total,

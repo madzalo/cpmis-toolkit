@@ -121,30 +121,67 @@ def interactive_select_keep(household_teis, child_teis, hh_to_children, child_to
     console.print(f"  Linked households/children are automatically handled.")
     console.print(f"  Enter 'none' to {mode_label} nothing, or 'cancel' to abort.\n")
 
-    # Build numbered list (sorted alphabetically by display name)
-    hh_uid_set = {t['trackedEntityInstance'] for t in household_teis}
-
-    def _sort_key(tei):
-        uid = tei['trackedEntityInstance']
-        if uid in hh_uid_set:
-            return get_tei_display_name(tei, 'household')
-        else:
-            return get_tei_display_name(tei, 'harmonized')
-
-    sorted_teis = sorted(all_teis, key=_sort_key)
+    # Build numbered list in 3 sections: HH with children, HH without children, unlinked children
+    tei_map = {t['trackedEntityInstance']: t for t in all_teis}
     numbered = []
-    for i, tei in enumerate(sorted_teis, 1):
-        uid = tei['trackedEntityInstance']
-        if uid in hh_uid_set:
-            tei_type = 'HH'
-            tei_id = extract_current_id(tei, hh_attr)
-            tei_name = get_tei_display_name(tei, 'household')
-        else:
-            tei_type = 'OVC'
-            tei_id = extract_current_id(tei, child_attr)
-            tei_name = get_tei_display_name(tei, 'harmonized')
-        numbered.append((i, uid, tei_type, tei_id or '(no ID)', tei_name))
-        console.print(f"    {i:3d}. [{tei_type}] {tei_name:<25} {tei_id or '(no ID)':<30} ({uid})")
+    counter = 1
+
+    # Section 1: Households with children
+    hh_with_children = sorted(
+        [h for h in household_teis if h['trackedEntityInstance'] in hh_to_children and hh_to_children[h['trackedEntityInstance']]],
+        key=lambda t: get_tei_display_name(t, 'household')
+    )
+    if hh_with_children:
+        console.print(f"  [dim]🏠 Households with children[/dim]")
+        for hh in hh_with_children:
+            hh_uid = hh['trackedEntityInstance']
+            hh_id = extract_current_id(hh, hh_attr) or '(no ID)'
+            hh_name = get_tei_display_name(hh, 'household')
+            numbered.append((counter, hh_uid, 'HH', hh_id, hh_name))
+            console.print(f"    {counter:3d}. 🏠 {hh_name:<25} {hh_id:<30}")
+            counter += 1
+
+            # Show children under this household
+            children = sorted(hh_to_children[hh_uid], key=lambda c: get_tei_display_name(tei_map[c], 'harmonized'))
+            for child_uid in children:
+                child = tei_map[child_uid]
+                child_id = extract_current_id(child, child_attr) or '(no ID)'
+                child_name = get_tei_display_name(child, 'harmonized')
+                numbered.append((counter, child_uid, 'OVC', child_id, child_name))
+                console.print(f"         {counter:3d}. 👶 {child_name:<25} {child_id:<30}")
+                counter += 1
+        console.print()
+
+    # Section 2: Households without children
+    hh_without_children = sorted(
+        [h for h in household_teis if h['trackedEntityInstance'] not in hh_to_children or not hh_to_children[h['trackedEntityInstance']]],
+        key=lambda t: get_tei_display_name(t, 'household')
+    )
+    if hh_without_children:
+        console.print(f"  [dim]🏠 Households without children[/dim]")
+        for hh in hh_without_children:
+            hh_uid = hh['trackedEntityInstance']
+            hh_id = extract_current_id(hh, hh_attr) or '(no ID)'
+            hh_name = get_tei_display_name(hh, 'household')
+            numbered.append((counter, hh_uid, 'HH', hh_id, hh_name))
+            console.print(f"    {counter:3d}. 🏠 {hh_name:<25} {hh_id:<30}")
+            counter += 1
+        console.print()
+
+    # Section 3: Unlinked children
+    unlinked_children = sorted(
+        [c for c in child_teis if c['trackedEntityInstance'] not in child_to_hh],
+        key=lambda t: get_tei_display_name(t, 'harmonized')
+    )
+    if unlinked_children:
+        console.print(f"  [dim]👶 Unlinked children[/dim]")
+        for child in unlinked_children:
+            child_uid = child['trackedEntityInstance']
+            child_id = extract_current_id(child, child_attr) or '(no ID)'
+            child_name = get_tei_display_name(child, 'harmonized')
+            numbered.append((counter, child_uid, 'OVC', child_id, child_name))
+            console.print(f"    {counter:3d}. 👶 {child_name:<25} {child_id:<30}")
+            counter += 1
 
     while True:
         choice = ask(f"TEIs to {mode_label} (e.g., 1,3,5 or 'none' or 'cancel')").strip()

@@ -217,50 +217,32 @@ def run_interactive():
         for ev in [enr.get('events', [])]
     )
 
-    section("Transfer Summary")
-    ts = Table(show_header=False, box=None, padding=(0, 2))
-    ts.add_row("Keeping at source", f"[dim]{len(keep_teis)} TEIs[/dim]")
-    ts.add_row("Transferring",      f"[bold]{len(transfer_teis)} TEIs[/bold]")
-    ts.add_row("Events to move",    f"[bold]{total_transfer_events}[/bold]")
-    console.print(ts)
-
     if not transfer_teis:
         warn("No TEIs to transfer. All selected to keep.")
         sys.exit(0)
 
-    section("Step 6 — Generating New IDs for Destination")
-
+    # Generate new IDs
     id_mappings = generate_transfer_ids(transfer_teis, dest_code, dest_uid)
 
-    id_tbl = Table(show_header=True, header_style="bold cyan", box=None, padding=(0, 2))
-    id_tbl.add_column("Old ID", style="dim", width=36)
-    id_tbl.add_column("→", width=3)
-    id_tbl.add_column("New ID", style="green")
-    for m in id_mappings[:15]:
-        id_tbl.add_row(m['old_id'] or '(empty)', "→", m['new_id'])
-    if len(id_mappings) > 15:
-        id_tbl.add_row(f"[dim]... and {len(id_mappings) - 15} more[/dim]", "", "")
-    console.print(id_tbl)
-
-    # ── Step 10: Save preview ──
+    # Save preview
     preview_file = save_transfer_preview(transfer_teis, dest_uid, dest_name, OUTPUT_DIR)
 
-    section("Ready to Transfer")
-    rt = Table(show_header=False, box=None, padding=(0, 2))
-    rt.add_row("TEIs",        f"[bold]{len(transfer_teis)}[/bold]")
-    rt.add_row("Events",      f"[bold]{total_transfer_events}[/bold]")
-    rt.add_row("From",        f"[cyan]{source_name}[/cyan]")
-    rt.add_row("To",          f"[cyan]{dest_name}[/cyan]")
-    rt.add_row("Preview CSV", f"[dim]{preview_file}[/dim]")
-    console.print(rt)
-    blank()
-    warn("This will MODIFY data on the live DHIS2 server.")
-    warn("TEIs, enrollments, and ALL events will be moved.")
+    # Compact summary
+    console.print(f"\n  [dim]{'─' * 70}[/dim]")
+    console.print(f"  [bold]Transfer Summary[/bold]")
+    console.print(f"  [dim]{'─' * 70}[/dim]")
+    console.print(f"  📦 TEIs:     [bold]{len(transfer_teis)}[/bold] (keeping {len(keep_teis)} at source)")
+    console.print(f"  📊 Events:   [bold]{total_transfer_events}[/bold]")
+    console.print(f"  📍 From:     [cyan]{source_name}[/cyan]")
+    console.print(f"  📍 To:       [cyan]{dest_name}[/cyan]")
+    console.print(f"  💾 Preview:  [dim]{preview_file}[/dim]")
+    console.print(f"  [dim]{'─' * 70}[/dim]")
+    console.print(f"  ⚠️  This will [bold red]MODIFY[/bold red] live DHIS2 data")
+    console.print(f"  [dim]{'─' * 70}[/dim]\n")
 
     confirm = ask("Execute transfer? (yes/no)").strip().lower()
     if confirm not in ('yes', 'y'):
         err("Cancelled. No changes made.")
-        console.print(f"  Preview saved at: [dim]{preview_file}[/dim]")
         sys.exit(0)
 
     section("Step 7 — Executing Transfer")
@@ -276,16 +258,14 @@ def run_interactive():
             transfer_teis, id_mappings, dest_uid, hh_to_children, child_to_hh
         )
 
-    section("Transfer Complete")
-    fs = Table(show_header=False, box=None, padding=(0, 2))
-    fs.add_row("Source",       f"[cyan]{source_name}[/cyan]")
-    fs.add_row("Destination",  f"[cyan]{dest_name}[/cyan]")
-    fs.add_row("Transferred",  f"[bold green]{success} TEIs[/bold green]")
-    fs.add_row("Errors",       f"[{'red' if errors_count else 'green'}]{errors_count}[/{'red' if errors_count else 'green'}]")
-    fs.add_row("Transfer log", f"[dim]{log_file}[/dim]")
-    fs.add_row("Preview",      f"[dim]{preview_file}[/dim]")
-    console.print(fs)
-    blank()
+    console.print(f"\n  [dim]{'─' * 70}[/dim]")
+    console.print(f"  [bold green]✓ Transfer complete[/bold green]")
+    console.print(f"  [dim]{'─' * 70}[/dim]")
+    console.print(f"  📍 {source_name} → {dest_name}")
+    console.print(f"  ✅ {success} transferred  ❌ {errors_count} errors")
+    console.print(f"  📄 Log: [dim]{log_file}[/dim]")
+    console.print(f"  📄 Preview: [dim]{preview_file}[/dim]")
+    console.print(f"  [dim]{'─' * 70}[/dim]\n")
 
 
 def main():

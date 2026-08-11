@@ -285,14 +285,9 @@ def execute_transfer(transfer_teis, dest_ou_uid, id_mappings, output_dir='output
         for ev in [enr.get('events', [])]
     )
 
-    print(f"\n  {'═' * 70}")
-    print(f"  EXECUTING TRANSFER")
-    print(f"  {'═' * 70}")
-    print(f"  TEIs to transfer:  {total}")
-    print(f"  Events to move:    {total_events}")
-    print(f"  Destination:       {dest_ou_uid}")
-    print(f"  Method:            4-step: POST (TEI+events) → POST (enrollments) → Transfer ownership → Update IDs")
-    print(f"  {'═' * 70}\n")
+    print(f"\n  [dim]{'─' * 70}[/dim]")
+    print(f"  [bold]Transferring {total} TEIs[/bold] ({total_events} events)")
+    print(f"  [dim]{'─' * 70}[/dim]\n")
 
     start_time = time.time()
 
@@ -444,14 +439,12 @@ def execute_transfer(transfer_teis, dest_ou_uid, id_mappings, output_dir='output
 
     # Summary
     elapsed = time.time() - start_time
-    print(f"\n  {'═' * 70}")
-    print(f"  TRANSFER COMPLETE")
-    print(f"  {'═' * 70}")
-    print(f"  Total:     {total}")
-    print(f"  Success:   {success_count}")
-    print(f"  Errors:    {error_count}")
-    print(f"  Time:      {elapsed:.1f}s")
-    print(f"  Log:       {log_file}")
+    print(f"\n  [dim]{'─' * 70}[/dim]")
+    print(f"  [bold green]✓ Transfer complete[/bold green]")
+    print(f"  [dim]{'─' * 70}[/dim]")
+    print(f"  ✅ {success_count} transferred  ❌ {error_count} errors  ⏱️  {elapsed:.1f}s")
+    print(f"  📄 Log: [dim]{log_file}[/dim]")
+    print(f"  [dim]{'─' * 70}[/dim]\n")
 
     if errors:
         print(f"\n  Errors (first 10):")
