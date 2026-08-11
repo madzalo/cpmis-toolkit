@@ -5,6 +5,7 @@ Utility functions and classes for CPMIS Sync Rescue.
 import os
 import sys
 import zipfile
+import subprocess
 from typing import Optional
 
 
@@ -74,7 +75,17 @@ def extract_nested_zips(extract_dir: str, password: Optional[str] = None):
                 nested_zip = os.path.join(root, file)
                 Logger.info(f"Found nested zip: {file}, extracting...")
                 try:
-                    # Try py7zr first for LZMA compression (compress_type=99)
+                    # Try 7z command-line tool first (most reliable for encrypted LZMA)
+                    import shutil
+                    if shutil.which('7z'):
+                        cmd = ['7z', 'x', nested_zip, f'-p{password}', f'-o{root}', '-y'] if password else ['7z', 'x', nested_zip, f'-o{root}', '-y']
+                        result = subprocess.run(cmd, capture_output=True, text=True)
+                        if result.returncode == 0:
+                            Logger.success(f"Extracted nested zip: {file}")
+                            os.remove(nested_zip)
+                            continue
+
+                    # Try py7zr for LZMA compression (compress_type=99)
                     try:
                         import py7zr
                         if password:
