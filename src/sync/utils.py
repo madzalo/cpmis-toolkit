@@ -75,7 +75,24 @@ def extract_nested_zips(extract_dir: str, password: Optional[str] = None):
                 nested_zip = os.path.join(root, file)
                 Logger.info(f"Found nested zip: {file}, extracting...")
                 try:
-                    # Try 7z command-line tool first (most reliable for encrypted LZMA)
+                    # Try pyzipper for LZMA compression in zip files
+                    try:
+                        import pyzipper
+                        if password:
+                            with pyzipper.AESZipFile(nested_zip) as zf:
+                                zf.extractall(root, pwd=password.encode())
+                        else:
+                            with pyzipper.ZipFile(nested_zip) as zf:
+                                zf.extractall(root)
+                        Logger.success(f"Extracted nested zip: {file}")
+                        os.remove(nested_zip)
+                        continue
+                    except ImportError:
+                        pass
+                    except Exception:
+                        pass
+
+                    # Try 7z command-line tool (most reliable for encrypted LZMA)
                     import shutil
                     if shutil.which('7z'):
                         cmd = ['7z', 'x', nested_zip, f'-p{password}', f'-o{root}', '-y'] if password else ['7z', 'x', nested_zip, f'-o{root}', '-y']
@@ -84,21 +101,6 @@ def extract_nested_zips(extract_dir: str, password: Optional[str] = None):
                             Logger.success(f"Extracted nested zip: {file}")
                             os.remove(nested_zip)
                             continue
-
-                    # Try py7zr for LZMA compression (compress_type=99)
-                    try:
-                        import py7zr
-                        if password:
-                            py7zr.SevenZipFile(nested_zip, password=password).extractall(root)
-                        else:
-                            py7zr.SevenZipFile(nested_zip).extractall(root)
-                        Logger.success(f"Extracted nested zip: {file}")
-                        os.remove(nested_zip)
-                        continue
-                    except ImportError:
-                        pass
-                    except Exception:
-                        pass
 
                     # Fallback to zipfile
                     with zipfile.ZipFile(nested_zip, 'r') as zf:
