@@ -127,6 +127,12 @@ def main():
                         continue
 
                 env = os.environ.copy()
+                # Pass credentials to subprocess to avoid re-prompting
+                from shared.auth import DHIS2_USERNAME, DHIS2_PASSWORD
+                if DHIS2_USERNAME:
+                    env["DHIS2_USERNAME"] = DHIS2_USERNAME
+                if DHIS2_PASSWORD:
+                    env["DHIS2_PASSWORD"] = DHIS2_PASSWORD
                 if env_extra:
                     env.update(env_extra)
                 subprocess.run([_PYTHON, script] + args, cwd=cwd, env=env)
