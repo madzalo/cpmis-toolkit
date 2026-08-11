@@ -47,12 +47,12 @@ TOOLS = [
 
 
 def run_script(script_path, cwd, env_extra, args=None):
-    """Run a script as a subprocess with the right environment."""
+    """Run a script as a subprocess with the right environment, suppressing output."""
     env = os.environ.copy()
     if env_extra:
         env.update(env_extra)
     cmd = [_PYTHON, script_path]
-    result = subprocess.run(cmd, cwd=cwd, env=env)
+    result = subprocess.run(cmd, cwd=cwd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return result.returncode == 0
 
 
