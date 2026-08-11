@@ -72,54 +72,20 @@ def extract_nested_zips(extract_dir: str, password: Optional[str] = None):
         for file in files:
             if file.endswith('.zip'):
                 nested_zip = os.path.join(root, file)
-                Logger.info(f"📦 Extracting {file}...")
+                Logger.info(f"Found nested zip: {file}, extracting...")
                 try:
-                    # Try zipfile first with password
                     with zipfile.ZipFile(nested_zip, 'r') as zf:
                         if password:
                             try:
                                 zf.extractall(root, pwd=password.encode())
-                                Logger.success(f"✓ Extracted")
-                                os.remove(nested_zip)
-                                continue
                             except RuntimeError:
-                                pass
-                        # Try without password
-                        try:
-                            zf.extractall(root)
-                            Logger.success(f"✓ Extracted")
-                            os.remove(nested_zip)
-                            continue
-                        except RuntimeError:
-                            pass
-
-                    # Try py7zr for better compression support
-                    try:
-                        import py7zr
-                        if password:
-                            py7zr.SevenZipFile(nested_zip, password=password).extractall(root)
+                                zf.extractall(root)
                         else:
-                            py7zr.SevenZipFile(nested_zip).extractall(root)
-                        Logger.success(f"✓ Extracted")
-                        os.remove(nested_zip)
-                        continue
-                    except ImportError:
-                        pass
-                    except Exception:
-                        pass
-
-                    # Prompt for actual password if all attempts failed
-                    Logger.warning(f"🔐 Password required for {file}")
-                    actual_password = input(f"  Enter DHIS2 password: ").strip()
-                    if actual_password:
-                        with zipfile.ZipFile(nested_zip, 'r') as zf:
-                            zf.extractall(root, pwd=actual_password.encode())
-                        Logger.success(f"✓ Extracted")
-                        os.remove(nested_zip)
-                    else:
-                        raise RuntimeError("No password provided")
+                            zf.extractall(root)
+                    Logger.success(f"Extracted nested zip: {file}")
+                    os.remove(nested_zip)
                 except Exception as e:
-                    Logger.warning(f"✗ Failed: {e}")
+                    Logger.warning(f"Could not extract nested zip {file}: {e}")
 
 
 def find_database(extract_dir: str, password: Optional[str] = None) -> Optional[str]:
